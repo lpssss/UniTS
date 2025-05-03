@@ -1,7 +1,7 @@
 task_dataset:
   CLS_ECG5000:
     task_name: classification
-    dataset: ECG5000
+    dataset: myfypdataset/ECG5000
     data: UEA
     embed: timeF
     root_path: ECG5000
@@ -17,7 +17,7 @@ task_dataset:
     dataset: ETTh1
     data: ETTh1
     embed: timeF
-    root_path: ../dataset/ETT-small/
+    root_path: myfypdataset/ETT-small/
     data_path: ETTh1.csv
     features: M
     seq_len: 192
