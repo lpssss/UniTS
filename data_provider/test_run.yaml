@@ -1,6 +1,6 @@
 task_dataset:
   CLS_ECG5000:
-    task_name: classification
+    task_name: pretrain_classification
     dataset: ECG5000
     data: UEA
     embed: timeF
