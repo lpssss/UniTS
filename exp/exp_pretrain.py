@@ -76,11 +76,12 @@ class Exp_All_Task(object):
             self.args.task_data_config_path)
         self.task_data_config_list = get_task_data_config_list(
             self.task_data_config, default_batch_size=self.args.batch_size)
-        device_id = dist.get_rank() % torch.cuda.device_count()
+        # device_id = dist.get_rank() % torch.cuda.device_count()
+        device_id = 0
         print("this device_id:", device_id)
         self.device_id = device_id
 
-    def _build_model(self, ddp=True):
+    def _build_model(self, ddp=False):
         module = importlib.import_module("models."+self.args.model)
         model = module.Model(
             self.args, self.task_data_config_list, pretrain=True).to(self.device_id)
@@ -98,7 +99,7 @@ class Exp_All_Task(object):
                 # TODO strange that no val set is used for classification. Set to test set for val
                 flag = 'test'
             data_set, data_loader = data_provider(
-                self.args, task_config, flag, ddp=True)
+                self.args, task_config, flag, ddp=False)
             data_set_list.append(data_set)
             data_loader_list.append(data_loader)
         return data_set_list, data_loader_list
@@ -123,7 +124,7 @@ class Exp_All_Task(object):
         self.path = path
 
         torch.cuda.synchronize()
-        dist.barrier()
+        # dist.barrier()
 
         # Data loader
         _, train_loader_list = self._get_data(flag='train')
@@ -132,11 +133,11 @@ class Exp_All_Task(object):
 
         # Set up batch size for each task
         if self.args.memory_check:
-            self.memory_check(data_loader_cycle)
+            self.memory_check(data_loader_cycle, holdout_memory=1)
             torch.cuda.empty_cache()
 
         torch.cuda.synchronize()
-        dist.barrier()
+        # dist.barrier()
 
         # Model
         self.model = self._build_model()

@@ -94,7 +94,7 @@ if __name__ == '__main__':
     parser.add_argument("--prompt_num", type=int, default=10)
 
     args = parser.parse_args()
-    init_distributed_mode(args)
+    # init_distributed_mode(args)
 
     print('Args in experiment:')
     print(args)

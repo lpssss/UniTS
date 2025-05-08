@@ -163,12 +163,12 @@ class Exp_All_Task(object):
         else:
             self.task_data_config = self.ori_task_data_config
             self.task_data_config_list = self.ori_task_data_config_list
-        device_id = dist.get_rank() % torch.cuda.device_count()
-        self.device_id = device_id
+        # device_id = dist.get_rank() % torch.cuda.device_count()
+        self.device_id = 0
         print("device id", self.device_id)
         self.model = self._build_model()
 
-    def _build_model(self, ddp=True):
+    def _build_model(self, ddp=False):
         import importlib
         module = importlib.import_module("models."+self.args.model)
         model = module.Model(
@@ -202,7 +202,7 @@ class Exp_All_Task(object):
                 print(task_data_name, len(data_set))
             else:
                 data_set, data_loader = data_provider(
-                    self.args, task_config, flag, ddp=True)
+                    self.args, task_config, flag, ddp=False)
                 data_set_list.append(data_set)
                 data_loader_list.append(data_loader)
                 print(task_data_name, len(data_set))
@@ -323,10 +323,10 @@ class Exp_All_Task(object):
 
         # Set up batch size for each task
         if self.args.memory_check:
-            self.memory_check(data_loader_cycle, criterion_list)
+            self.memory_check(data_loader_cycle, criterion_list, holdout_memory=1)
             torch.cuda.empty_cache()
         torch.cuda.synchronize()
-        dist.barrier()
+        # dist.barrier()
 
         for epoch in range(self.args.train_epochs+self.args.prompt_tune_epoch):
             adjust_learning_rate(model_optim, epoch,
@@ -441,7 +441,7 @@ class Exp_All_Task(object):
             epoch + 1, time.time() - epoch_time), folder=self.path)
         train_loss = np.average(train_loss_set)
         torch.cuda.synchronize()
-        dist.barrier()
+        # dist.barrier()
 
         return train_loss
 
@@ -697,10 +697,10 @@ class Exp_All_Task(object):
                 preds.append(predictions.detach())
                 trues.append(label)
 
-        preds = gather_tensors_from_all_gpus(
-            preds, self.device_id, to_numpy=False)
-        trues = gather_tensors_from_all_gpus(
-            trues, self.device_id, to_numpy=False)
+        # preds = gather_tensors_from_all_gpus(
+        #     preds, self.device_id, to_numpy=False)
+        # trues = gather_tensors_from_all_gpus(
+        #     trues, self.device_id, to_numpy=False)
         preds = torch.cat(preds, 0)
         trues = torch.cat(trues, 0)
 
