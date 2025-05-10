@@ -276,9 +276,18 @@ class VarAttention(nn.Module):
     def forward(self, x):
         B, N, P, C = x.shape
 
-        qkv = self.qkv(x).reshape(B, N, P, 3, self.num_heads,
-                                  self.head_dim).permute(3, 0, 2, 4, 1, 5)
-        q, k, v = qkv.unbind(0)
+        # qkv = self.qkv(x).reshape(B, N, P, 3, self.num_heads,
+        #                           self.head_dim).permute(3, 0, 2, 4, 1, 5)
+        # q, k, v = qkv.unbind(0)
+        qkv = self.qkv(x)
+        q = qkv[:, :, :, :C]
+        k = qkv[:, :, :, C:2*C]
+        v = qkv[:, :, :, 2*C:]
+
+        q = q.reshape(B, N, P, self.num_heads, self.head_dim).permute(0, 2, 3, 1, 4)
+        k = k.reshape(B, N, P, self.num_heads, self.head_dim).permute(0, 2, 3, 1, 4)
+        v = v.reshape(B, N, P, self.num_heads, self.head_dim).permute(0, 2, 3, 1, 4)
+
         q, k = self.q_norm(q), self.k_norm(k)
 
         q = q.mean(dim=1, keepdim=False)
