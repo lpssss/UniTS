@@ -15,7 +15,7 @@ class TracedClassificationModel(nn.Module):
         # calculate seq len based on the input shape
         # TODO:
         self.seq_len = 128
-        self.category_tokens = torch.randn(1, 1, num_classes, self.d_model)
+        self.category_tokens = nn.Parameter(torch.randn(1, 1, self.prompt_num, self.d_model))
 
         self.blocks = nn.ModuleList(
             [BasicBlock(dim=self.d_model, num_heads=self.n_heads, qkv_bias=False, qk_norm=False,
