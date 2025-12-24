@@ -43,9 +43,11 @@ def data_provider(args, config, flag, ddp=False):  # args,
             batch_size = 1  # bsz=1 for evaluation
         freq = args.freq
     else:
+        # shuffle_flag = False
         shuffle_flag = True
         drop_last = True
         batch_size = args.batch_size  # bsz for train and valid
+        # batch_size = 1
         freq = args.freq
 
     if 'gluonts' in config['data']:

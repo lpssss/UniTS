@@ -167,11 +167,12 @@ class Exp_All_Task(object):
         self.device_id = 0
         print("device id", self.device_id)
         self.model = self._build_model()
+        self.start_training = False
 
     def _build_model(self, ddp=False):
         import importlib
         module = importlib.import_module("models."+self.args.model)
-        model = module.Model(
+        model = module.CompositeModel(
             self.args, self.task_data_config_list).to(self.device_id)
         if ddp:
             model = nn.parallel.DistributedDataParallel(model, device_ids=[self.device_id],
@@ -205,7 +206,7 @@ class Exp_All_Task(object):
                     self.args, task_config, flag, ddp=False)
                 data_set_list.append(data_set)
                 data_loader_list.append(data_loader)
-                print(task_data_name, len(data_set))
+                print(f'Getting data: {task_data_name}, {len(data_set)}')
         return data_set_list, data_loader_list
 
     def _select_optimizer(self):
@@ -252,10 +253,29 @@ class Exp_All_Task(object):
 
         return criterion_list
 
-    def choose_training_parts(self, prompt_tune=False):
+    def choose_training_parts(self, prompt_tune=False, lora_tune=False):
         for name, param in self.model.named_parameters():
-            if prompt_tune:
+            if prompt_tune and lora_tune:
                 if 'prompt_token' in name or 'mask_prompt' in name or 'cls_prompt' in name or 'mask_token' in name or 'cls_token' in name or 'category_token' in name:
+                    param.requires_grad = True
+                    print("trainable:", name)
+                elif 'lora_' in name:
+                    param.requires_grad = True
+                    print("trainable:", name)
+                else:
+                    param.requires_grad = False
+            elif prompt_tune:
+                if 'prompt_token' in name or 'mask_prompt' in name or 'cls_prompt' in name or 'mask_token' in name or 'cls_token' in name or 'category_token' in name:
+                    param.requires_grad = True
+                    print("trainable:", name)
+                else:
+                    param.requires_grad = False
+            elif lora_tune:
+                # need to enable training for tokens as they are new parameters
+                if 'prompt_token' in name or 'mask_prompt' in name or 'cls_prompt' in name or 'mask_token' in name or 'cls_token' in name or 'category_token' in name:
+                    param.requires_grad = True
+                    print("trainable:", name)
+                elif 'lora_' in name:
                     param.requires_grad = True
                     print("trainable:", name)
                 else:
@@ -263,8 +283,65 @@ class Exp_All_Task(object):
             else:
                 param.requires_grad = True
 
-        if not prompt_tune:
+        if not prompt_tune and not lora_tune:
             print("all trainable.")
+
+    def calculate_trainable_params(self, print_trainable=False):
+        model_param = []
+        for name, param in self.model.named_parameters():
+            if param.requires_grad:
+                model_param.append(param.numel())
+                if print_trainable:
+                    print("In calc trainable:", name)
+        model_total_params = sum(model_param)
+        print("Trainable Parameters number for UniTS {} M".format(
+            model_total_params/1e6), folder=self.path)
+
+
+    # ============================================================
+    # Replace existing nn.Linear with LoRALinear in-place
+    # ============================================================
+    def replace_fc_with_lora(
+        self,
+        model: nn.Module,
+        fc_name: str,
+        r: int = 8,
+        lora_alpha: float = 1.0,
+    ):
+        from models.UniTS import LoRALinear
+        """
+        Replace model.<fc_name> (nn.Linear) with LoRALinear
+        while preserving weight name and values.
+        """
+        print(f'Replacing {fc_name} with LoRALinear (r={r}, alpha={lora_alpha})')
+        modules = dict(model.named_modules())
+        assert fc_name in modules, f"{fc_name} not found in model"
+        fc = modules[fc_name]
+        assert isinstance(fc, nn.Linear), f"{fc_name} is not nn.Linear"
+
+        # Create LoRA FC
+        lora_fc = LoRALinear(
+            in_features=fc.in_features,
+            out_features=fc.out_features,
+            r=r,
+            lora_alpha=lora_alpha,
+            bias=fc.bias is not None,
+        )
+
+        # Copy pretrained weights
+        lora_fc.weight.data.copy_(fc.weight.data)
+        if fc.bias is not None:
+            lora_fc.bias.data.copy_(fc.bias.data)
+
+        # set all weights in lora_fc to same device as fc weights
+        lora_fc.to(fc.weight.device)
+
+        # Replace module in parent
+        parent = model
+        *path, name = fc_name.split(".")
+        for p in path:
+            parent = getattr(parent, p)
+        setattr(parent, name, lora_fc)
 
     def train(self, setting):
         path = os.path.join(self.args.checkpoints, setting)
@@ -290,8 +367,43 @@ class Exp_All_Task(object):
                         ckpt[k] = v
             else:
                 ckpt = torch.load(pretrain_weight_path, map_location='cpu', weights_only=False)
+
+            # remove module. prefix if present
+            new_ckpt = {}
+            for k, v in ckpt.items():
+                if k.startswith('module.'):
+                    new_ckpt[k[7:]] = v
+                else:
+                    new_ckpt[k] = v
+
+            ckpt = new_ckpt
+            
+            # find intersection keys and missing keys
+            intersection_keys = set(ckpt.keys()) & set(self.model.state_dict().keys())
+            missing_keys = set(self.model.state_dict().keys()) - set(ckpt.keys())
+            print("Intersection keys:", intersection_keys, folder=self.path)
+            print("Missing keys:", missing_keys, folder=self.path)
+
+            # # dump all model keys and ckpt keys for debugging in a json file
+            # with open('model_keys.json', 'w') as f:
+            #     import json
+            #     model_keys = list(self.model.state_dict().keys())
+            #     ckpt_keys = list(ckpt.keys())
+            #     json.dump({'model_keys': model_keys, 'ckpt_keys': ckpt_keys}, f, indent=4)
+            # assert False
+
             msg = self.model.load_state_dict(ckpt, strict=False)
             print(msg, folder=self.path)
+
+        # replace fc with lora fc
+        replace_fc = self.args.lora
+        lora_r = self.args.lora_r
+        lora_alpha = self.args.lora_alpha
+        if replace_fc:
+            for name, module in self.model.named_modules():
+                if isinstance(module, nn.Linear) and 'blocks.' in name:
+                    self.replace_fc_with_lora(
+                        self.model, name, r=lora_r, lora_alpha=lora_alpha)
 
         # Data
         _, train_loader_list = self._get_data(flag='train')
@@ -315,6 +427,12 @@ class Exp_All_Task(object):
         model_total_params = sum(model_param)
         print("Parameters number for UniTS {} M".format(
             model_total_params/1e6), folder=self.path)
+        
+        print("Choosing training parts...")
+        self.choose_training_parts(lora_tune=replace_fc)
+        
+        self.calculate_trainable_params(print_trainable=True)
+        # exit(0)
 
         # Optimizer and Criterion
         model_optim = self._select_optimizer()
@@ -328,14 +446,16 @@ class Exp_All_Task(object):
         torch.cuda.synchronize()
         # dist.barrier()
 
+        self.start_training = True
+
         for epoch in range(self.args.train_epochs+self.args.prompt_tune_epoch):
             adjust_learning_rate(model_optim, epoch,
                                  self.real_learning_rate, self.args)
             # Prompt learning
             if (epoch+1) <= self.args.prompt_tune_epoch:
-                self.choose_training_parts(prompt_tune=True)
+                self.choose_training_parts(prompt_tune=True, lora_tune=replace_fc)
             else:
-                self.choose_training_parts(prompt_tune=False)
+                self.choose_training_parts(prompt_tune=False, lora_tune=replace_fc)
 
             train_loss = self.train_one_epoch(
                 model_optim, data_loader_cycle, criterion_list, epoch, train_steps, scaler)
@@ -416,6 +536,11 @@ class Exp_All_Task(object):
 
             if (i+1) % acc_it == 0:
                 model_optim.zero_grad()
+                for n, p in self.model.named_parameters():
+                    if torch.isnan(p).any() or torch.isinf(p).any():
+                        print("BAD PARAM:", n)
+                        assert False
+                
             torch.cuda.synchronize()
 
             loss_sum += loss_display
@@ -430,7 +555,8 @@ class Exp_All_Task(object):
                 wandb.log(
                     {'train_loss_'+self.task_data_config_list[task_id][0]: loss_display, 'norm_value': norm_value, "loss_sum": loss_sum_display/(i+1)})
 
-            if (i + 1) % 100 == 0:
+            # if True:
+            if (i + 1) % 20 == 0:
                 if norm_value == None:
                     norm_value = -1
                 if is_main_process():
@@ -461,7 +587,7 @@ class Exp_All_Task(object):
         batch_x_mark = None
         batch_y_mark = None
 
-        with torch.cuda.amp.autocast():
+        with torch.amp.autocast(device_type="cuda", enabled=False):
             outputs = model(batch_x, batch_x_mark, dec_inp,
                             batch_y_mark, task_id=task_id, task_name=task_name)
             f_dim = -1 if features == 'MS' else 0
@@ -475,19 +601,34 @@ class Exp_All_Task(object):
         task_name = config['task_name']
 
         batch_x, label, padding_mask = this_batch
+        # if self.start_training:
+        #     print(batch_x)
+        # print(label)
+        # print(padding_mask)
 
         batch_x = batch_x.float().to(self.device_id)
         padding_mask = padding_mask.float().to(self.device_id)
         label = label.to(self.device_id)
-        with torch.cuda.amp.autocast():
+        assert torch.isfinite(batch_x).all(), "Inputs contain NaN/Inf"
+        with torch.amp.autocast(device_type="cuda", enabled=False):
             outputs = model(batch_x, padding_mask, None,
                             None, task_id=task_id, task_name=task_name)
+            # print(outputs)
             if outputs.shape[0] == label.shape[0]:
                 loss = criterion(outputs, label.long().squeeze(-1))
             else:
                 label = label.repeat(outputs.shape[0]//label.shape[0], 1)
                 loss = criterion(outputs, label.long().squeeze(-1))
 
+        # if self.start_training:
+        #     print("classification loss debug:", loss.item())
+        #     assert False
+        if torch.isnan(loss):
+            print("loss is nan!")
+            print("outputs:", outputs)
+            print("labels:", label)
+            print(f'inputs:{batch_x}')
+            assert False
         return loss
 
     def train_imputation(self, model, this_batch, criterion, config, task_id):
@@ -501,7 +642,7 @@ class Exp_All_Task(object):
         inp, mask = apply_random_mask_for_imputation(
             batch_x, self.args.patch_len, self.args.mask_rate)
 
-        with torch.cuda.amp.autocast():
+        with torch.amp.autocast(device_type="cuda", enabled=False):
             outputs = model(inp, None, None,
                             None, task_id=task_id, mask=mask, task_name=task_name)
         f_dim = -1 if features == 'MS' else 0
@@ -518,7 +659,7 @@ class Exp_All_Task(object):
 
         batch_x = batch_x.float().to(self.device_id)
 
-        with torch.cuda.amp.autocast():
+        with torch.amp.autocast(device_type="cuda", enabled=False):
             outputs = model(batch_x, None, None,
                             None, task_id=task_id, task_name=task_name)
             f_dim = -1 if features == 'MS' else 0
@@ -644,7 +785,7 @@ class Exp_All_Task(object):
                 batch_x_mark = None
                 batch_y_mark = None
 
-                with torch.cuda.amp.autocast():
+                with torch.amp.autocast(device_type="cuda", enabled=False):
                     outputs = self.model(
                         batch_x, batch_x_mark, dec_inp, batch_y_mark, task_id=task_id, task_name='long_term_forecast')
 
@@ -707,14 +848,49 @@ class Exp_All_Task(object):
         predictions = preds.cpu().numpy()
         trues = trues.flatten().cpu().numpy()
         accuracy = cal_accuracy(predictions, trues)
+
+        print('data_task_name: {} accuracy:{}'.format(
+            data_task_name, accuracy), folder=self.path)
+        
+        print("In-depth classification analysis for task: {}".format(data_task_name), folder=self.path)
+        self.in_depth_classification_analysis(trues, predictions)
+
         del predictions
         del trues
         torch.cuda.empty_cache()
 
-        print('data_task_name: {} accuracy:{}'.format(
-            data_task_name, accuracy), folder=self.path)
-
         return accuracy
+    
+    def in_depth_classification_analysis(self, labels, predictions):
+        from sklearn.metrics import (
+            classification_report,
+            confusion_matrix,
+            accuracy_score,
+            precision_recall_fscore_support
+        )
+        all_labels = np.array(labels)
+        all_preds = np.array(predictions)
+        # Basic accuracy
+        acc = accuracy_score(all_labels, all_preds)
+
+        # Per-class metrics
+        precision, recall, f1, _ = precision_recall_fscore_support(
+            all_labels, all_preds, average=None
+        )
+
+        # Confusion matrix
+        cm = confusion_matrix(all_labels, all_preds)
+
+        # Text summary
+        report = classification_report(all_labels, all_preds)
+
+        # Print or log the results
+        print("Overall Accuracy: {:.4f}".format(acc))
+        print("Per-class Precision: ", precision)
+        print("Per-class Recall: ", recall)
+        print("Per-class F1-score: ", f1)
+        print("Confusion Matrix:\n", cm)
+        print("Classification Report:\n", report)
 
     def test_imputation(self, setting, test_data, test_loader, data_task_name, task_id):
         preds = []
@@ -849,7 +1025,7 @@ class Exp_All_Task(object):
                 batch_x_mark = None
                 batch_y_mark = None
 
-                with torch.cuda.amp.autocast():
+                with torch.amp.autocast(device_type="cuda", enabled=False):
                     outputs = self.model(
                         batch_x, batch_x_mark, dec_inp, batch_y_mark, task_id=task_id, task_name='long_term_forecast')
 
@@ -973,3 +1149,120 @@ class Exp_All_Task(object):
         del extra_mem
         torch.cuda.empty_cache()
         return
+
+    def convert_model_to_tflite(self, setting, load_pretrain=False, test_data_list=None, test_loader_list=None,
+                                calib_data_path=None, tflite_path=None):
+        self.path = os.path.join(self.args.checkpoints, setting)
+        if not os.path.exists(self.path) and is_main_process():
+            os.makedirs(self.path)
+        if test_data_list is None or test_loader_list is None:
+            test_data_list, test_loader_list = self._get_data(
+                flag='test', test_anomaly_detection=True)
+            
+        assert len(test_data_list) == 1
+        print(test_data_list)
+
+        assert calib_data_path is not None, "Please provide calibration data path for TFLite conversion."
+        assert tflite_path is not None, "Please provide tflite model save path."
+        
+        # assert False
+        if load_pretrain:
+            if os.path.exists(self.args.pretrained_weight):
+                pretrain_weight_path = self.args.pretrained_weight
+                print('loading pretrained model:',
+                      pretrain_weight_path, folder=self.path)
+                if 'pretrain_checkpoint.pth' in pretrain_weight_path:
+                    state_dict = torch.load(
+                        pretrain_weight_path, map_location='cpu', weights_only=False)['student']
+                    ckpt = {}
+                    for k, v in state_dict.items():
+                        if not ('cls_prompts' in k):
+                            ckpt[k] = v
+                else:
+                    ckpt = torch.load(pretrain_weight_path, map_location='cpu', weights_only=False)
+                msg = self.model.load_state_dict(ckpt, strict=False)
+                print(msg)
+            else:
+                print("no ckpt found!")
+                exit()
+
+        total_dict = {}
+        avg_classification_acc = []
+        avg_long_term_forecast_mse = []
+        avg_long_term_forecast_mae = []
+        avg_imputation_mse = []
+        avg_imputation_mae = []
+        avg_anomaly_f_score = []
+        for task_id, (test_data, test_loader) in enumerate(zip(test_data_list, test_loader_list)):
+            task_name = self.task_data_config_list[task_id][1]['task_name']
+            data_task_name = self.task_data_config_list[task_id][0]
+            assert task_name == 'classification'
+
+            self.model.set_dataset(self.task_data_config_list[task_id][1]['dataset'])
+            self.model.enable_tracing_mode()
+
+            def trace_fp_model(model, x, tflite_path):
+                import ai_edge_torch
+
+                print(f'Sample input shape: {x.shape}')
+                edge_model = ai_edge_torch.convert(model.eval(), (x,))
+
+                edge_model.export(tflite_path)
+
+            # read data from calib_data_path npz
+            calib_data = np.load(calib_data_path)
+            sample_inputs = calib_data['x']
+            sample_inputs = torch.from_numpy(sample_inputs).float().to(self.device_id)
+            trace_fp_model(self.model, sample_inputs[0], tflite_path)
+
+        self.model.disable_tracing_mode()
+
+    def save_calib_data(self, setting, load_pretrain=False, test_data_list=None, test_loader_list=None,
+                                calib_data_path=None):
+        self.path = os.path.join(self.args.checkpoints, setting)
+        if not os.path.exists(self.path) and is_main_process():
+            os.makedirs(self.path)
+        if test_data_list is None or test_loader_list is None:
+            test_data_list, test_loader_list = self._get_data(
+                flag='test', test_anomaly_detection=True)
+            
+        assert len(test_data_list) == 1
+        print(test_data_list)
+
+        assert calib_data_path is not None, "Please provide calibration data path for TFLite conversion."
+
+        if load_pretrain:
+            if os.path.exists(self.args.pretrained_weight):
+                pretrain_weight_path = self.args.pretrained_weight
+                print('loading pretrained model:',
+                      pretrain_weight_path, folder=self.path)
+                if 'pretrain_checkpoint.pth' in pretrain_weight_path:
+                    state_dict = torch.load(
+                        pretrain_weight_path, map_location='cpu', weights_only=False)['student']
+                    ckpt = {}
+                    for k, v in state_dict.items():
+                        if not ('cls_prompts' in k):
+                            ckpt[k] = v
+                else:
+                    ckpt = torch.load(pretrain_weight_path, map_location='cpu', weights_only=False)
+                msg = self.model.load_state_dict(ckpt, strict=False)
+                print(msg)
+            else:
+                print("no ckpt found!")
+                exit()
+
+        total_dict = {}
+        avg_classification_acc = []
+        avg_long_term_forecast_mse = []
+        avg_long_term_forecast_mae = []
+        avg_imputation_mse = []
+        avg_imputation_mae = []
+        avg_anomaly_f_score = []
+        for task_id, (test_data, test_loader) in enumerate(zip(test_data_list, test_loader_list)):
+            task_name = self.task_data_config_list[task_id][1]['task_name']
+            data_task_name = self.task_data_config_list[task_id][0]
+            assert task_name == 'classification'
+
+            self.model.save_calibration_npz(
+                test_loader, task_id, save_path=calib_data_path
+            )

@@ -1,43 +1,68 @@
 import torch
 import ai_edge_torch
 import numpy as np
+import time  # Added for timing
 
 # --- 1. Define the TFLite file path ---
-tflite_path = ''
-# tflite_path = '/home/lps/fyp/UniTS/test_model_1.tflite'
-# NOTE: Make sure this file exists in your current directory, 
-# or use the full path.
+# tflite_path = '/home/lps/fyp/UniTS/example_models/test_model_quantized.tflite'
+# tflite_path = '/home/lps/fyp/UniTS/example_models/test_model_dynamic_quantized.tflite'
+tflite_path = '/home/lps/fyp/UniTS/example_models/test_model_1.tflite'
 
-# --- 2. Load the EdgeModel from the TFLite file ---
+# --- 2. Load the EdgeModel ---
 try:
     edge_model_loaded = ai_edge_torch.load(tflite_path)
     print(f"Successfully loaded model from {tflite_path}")
 
-    print(dir(edge_model_loaded))  # Print available methods and attributes
-
-    # --- 3. Prepare the input data for inference ---
-    # The input shape must match the shape the model was converted with 
-    # (e.g., 1, 3, 224, 224 for a ResNet image model)
-    # Using a dummy tensor for demonstration:
+    # --- 3. Prepare the input data ---
     input_shape = (1, 1, 140, 128) 
-    # Convert to a NumPy array, as TFLite interpreters typically expect NumPy or bytes
-    # dummy_input = np.random.randn(*input_shape).astype(np.float32)
-    
-    # get int8 random input for quantized model
-    dummy_input = np.random.randint(-128, 127, size=input_shape).astype(np.int8)
-    
-    # --- 4. Run Inference ---
-    # The loaded EdgeModel accepts the NumPy array directly
-    output = edge_model_loaded(dummy_input)
+    dummy_input = np.random.randn(*input_shape).astype(np.float32)
 
-    # --- 5. Process Output ---
-    print("Inference successful.")
-    # The output is a NumPy array (or a tuple of arrays)
-    print("Output type:", type(output))
+    # get int8 random input for quantized model
+
+    # dummy_input = np.random.randint(-128, 127, size=input_shape).astype(np.int8)
+    print("Dummy input shape:", dummy_input.shape)
+
+    print(dummy_input)
+
+
+    # --- 4. Warm-up Phase ---
+    # Run the model a few times to initialize the interpreter/hardware
+    print("Warming up...")
+    for _ in range(10):
+        _ = edge_model_loaded(dummy_input)
+
+    # --- 5. Latency Measurement Loop ---
+    num_runs = 100
+    latencies = []
+
+    print(f"Starting inference benchmark for {num_runs} iterations...")
+    for i in range(num_runs):
+        start_time = time.perf_counter()
+        output = edge_model_loaded(dummy_input)
+        end_time = time.perf_counter()
+        
+        # Calculate duration in milliseconds
+        latency_ms = (end_time - start_time) * 1000
+        latencies.append(latency_ms)
+
+    # --- 6. Results Calculation ---
+    avg_latency = np.mean(latencies)
+    median_latency = np.median(latencies)
+    std_dev = np.std(latencies)
+    fps = 1000 / avg_latency
+
+    print("-" * 30)
+    print(f"Inference Results ({num_runs} runs):")
+    print(f"  Average Latency: {avg_latency:.2f} ms")
+    print(f"  Median Latency:  {median_latency:.2f} ms")
+    print(f"  Std Deviation:   {std_dev:.2f} ms")
+    print(f"  Throughput:      {fps:.2f} FPS")
+    print("-" * 30)
+    
+    # Print output shape for verification
     print("Output shape:", output.shape)
     
 except FileNotFoundError:
     print(f"Error: The file '{tflite_path}' was not found.")
-    print("Please ensure you have run the conversion step and the file exists.")
 except Exception as e:
-    print(f"An error occurred during loading or inference: {e}")
+    print(f"An error occurred: {e}")

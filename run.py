@@ -15,6 +15,14 @@ if __name__ == '__main__':
                         help='task name')
     parser.add_argument('--is_training', type=int,
                         required=True, default=1, help='status')
+    parser.add_argument('--save_calib_data', action='store_true',
+                        help='save calibration data for tflite quantization', default=False)
+    parser.add_argument('--convert_to_tflite', action='store_true',
+                        help='convert model to tflite', default=False)
+    parser.add_argument('--calib_data_path', type=str, default=None,
+                        help='path to calibration data for tflite quantization')
+    parser.add_argument('--tflite_path', type=str, default=None,
+                        help='path to tflite model')
     parser.add_argument('--model_id', type=str, required=True,
                         default='test', help='model id')
     parser.add_argument('--model', type=str, required=True, default='UniTS',
@@ -109,6 +117,14 @@ if __name__ == '__main__':
     parser.add_argument("--max_offset", type=int, default=0)
     parser.add_argument('--zero_shot_forecasting_new_length',
                         type=str, default=None, help='unify')
+    
+    # lora settings
+    parser.add_argument('--lora', action='store_true',
+                        help='use lora', default=False)
+    parser.add_argument('--lora_r', type=int, default=4,
+                        help='lora rank')
+    parser.add_argument('--lora_alpha', type=int, default=8,
+                        help='lora alpha')
 
     args = parser.parse_args()
     # init_distributed_mode(args)
@@ -161,6 +177,38 @@ if __name__ == '__main__':
             exp = Exp(args)  # set experiments
             print('>>>>>>>start training : {}>>>>>>>>>>>>>>>>>>>>>>>>>>'.format(setting))
             exp.train(setting)
+    elif args.save_calib_data:
+        ii = 0
+        setting = '{}_{}_{}_{}_ft{}_dm{}_el{}_{}_{}'.format(
+            args.task_name,
+            args.model_id,
+            args.model,
+            args.data,
+            args.features,
+            args.d_model,
+            args.e_layers,
+            args.des, ii)
+
+        exp = Exp(args)  # set experiments
+        print('>>>>>>>save calib data : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
+        exp.save_calib_data(setting, load_pretrain=True, calib_data_path=args.calib_data_path)
+        torch.cuda.empty_cache()
+    elif args.convert_to_tflite:
+        ii = 0
+        setting = '{}_{}_{}_{}_ft{}_dm{}_el{}_{}_{}'.format(
+            args.task_name,
+            args.model_id,
+            args.model,
+            args.data,
+            args.features,
+            args.d_model,
+            args.e_layers,
+            args.des, ii)
+
+        exp = Exp(args)  # set experiments
+        print('>>>>>>>convert to tflite : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
+        exp.convert_model_to_tflite(setting, load_pretrain=True, calib_data_path=args.calib_data_path, tflite_path=args.tflite_path)
+        torch.cuda.empty_cache()
     else:
         ii = 0
         setting = '{}_{}_{}_{}_ft{}_dm{}_el{}_{}_{}'.format(

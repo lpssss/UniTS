@@ -1,0 +1,13 @@
+task_dataset:
+  CLS_UCIHAR:
+    task_name: classification
+    dataset: UCIHAR
+    data: UEA
+    embed: timeF
+    root_path: myfypdataset/ucihar
+    seq_len: 128
+    label_len: 0
+    pred_len: 0
+    enc_in: 6
+    num_class: 6
+    c_out: None

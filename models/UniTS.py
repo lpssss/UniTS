@@ -439,6 +439,62 @@ class MLPBlock(nn.Module):
         else:
             x = x + self.drop_path2(self.ls2(self.mlp(self.norm2(x))))
         return x
+    
+# ============================================================
+# LoRA-augmented Linear layer (weight name preserved)
+# ============================================================
+class LoRALinear(nn.Module):
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        r: int = 8,
+        lora_alpha: float = 1.0,
+        bias: bool = True,
+    ):
+        super().__init__()
+
+        # --- original FC parameters (NAME PRESERVED) ---
+        self.weight = nn.Parameter(torch.empty(out_features, in_features))
+        if bias:
+            self.bias = nn.Parameter(torch.zeros(out_features))
+        else:
+            self.bias = None
+
+        # --- LoRA parameters ---
+        self.r = r
+        self.lora_alpha = lora_alpha
+        self.scaling = lora_alpha / r
+
+        self.lora_A = nn.Parameter(torch.empty(r, in_features))
+        self.lora_B = nn.Parameter(torch.empty(out_features, r))
+
+        self.reset_parameters()
+
+        # Freeze original FC weight
+        # self.weight.requires_grad = False
+
+    def reset_parameters(self):
+        nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
+        nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
+        nn.init.zeros_(self.lora_B)
+
+        if self.bias is not None:
+            fan_in = self.weight.size(1)
+            bound = 1 / math.sqrt(fan_in)
+            nn.init.uniform_(self.bias, -bound, bound)
+
+    def forward(self, x):
+        # Original FC
+        out = F.linear(x, self.weight, self.bias)
+
+        # LoRA update
+        lora_out = F.linear(
+            F.linear(x, self.lora_A),
+            self.lora_B,
+        ) * self.scaling
+
+        return out + lora_out
 
 
 class BasicBlock(nn.Module):
@@ -565,6 +621,19 @@ class ForecastHead(nn.Module):
         x = x.squeeze(dim=-1)
         x = x.reshape(bs, n_vars, -1)
         x = x.permute(0, 2, 1)
+        return x
+
+# initialize this wrapper for ai_edge_torch
+class BackboneWrapper(torch.nn.Module):
+    def __init__(self, backbone, cls_head, category_token):
+        super().__init__()
+        self.backbone = backbone
+        self.cls_head = cls_head
+        self.register_buffer("category_token", category_token)
+
+    def forward(self, x, prefix_len, seq_len):
+        x = self.backbone(x, prefix_len, seq_len)
+        x = self.cls_head(x, self.category_token)
         return x
 
 
@@ -775,7 +844,7 @@ class Model(nn.Module):
 
         return x
 
-    def classification(self, x, x_mark, task_id):
+    def preprocess_classification(self, x, x_mark, task_id):
         dataset_name = self.configs_list[task_id][1]['dataset']
         task_data_name = self.configs_list[task_id][0]
         prefix_prompt = self.prompt_tokens[dataset_name]
@@ -789,12 +858,97 @@ class Model(nn.Module):
 
         x = self.prepare_prompt(
             x, n_vars, prefix_prompt, task_prompt, task_prompt_num, task_name='classification')
+        
+        return {
+            "x": x,
+            "prefix_len": prefix_prompt.shape[2],
+            "seq_len": seq_len,   
+        }
 
-        x = self.backbone(x, prefix_prompt.shape[2], seq_len)
+    def classification(self, x, x_mark, task_id):
+        dataset_name = self.configs_list[task_id][1]['dataset']
+        task_data_name = self.configs_list[task_id][0]
+        prefix_prompt = self.prompt_tokens[dataset_name]
+        task_prompt = self.cls_tokens[task_data_name]
+        task_prompt_num = 1
+        category_token = self.category_tokens[task_data_name]
+
+        # x, means, stdev, n_vars, _ = self.tokenize(x)
+
+        # seq_len = x.shape[-2]
+
+        # x = self.prepare_prompt(
+        #     x, n_vars, prefix_prompt, task_prompt, task_prompt_num, task_name='classification')
+        
+        # print(x.shape, prefix_prompt.shape[2], seq_len)
+        # x = self.backbone(x, prefix_prompt.shape[2], seq_len)
+
+        prep = self.preprocess_classification(x, None, task_id)
+
+        x = self.backbone(
+            prep["x"],
+            prep["prefix_len"],
+            prep["seq_len"],
+        )
 
         x = self.cls_head(x, category_token)
 
         return x
+
+    @torch.no_grad()
+    def save_calibration_npz(
+        self,
+        dataloader,
+        task_id,
+        save_path,
+        max_batches=10
+    ):
+        """
+        Save pre-backbone calibration data into a single NPZ file.
+
+        Saved fields:
+            - x: [N, ...]
+            - prefix_len: [N]
+            - seq_len: [N]
+        """
+        import os
+        import numpy as np
+        self.eval()
+
+        xs = []
+        prefix_lens = []
+        seq_lens = []
+
+        for i, (x, _, _) in enumerate(dataloader):
+            if i >= max_batches:
+                break
+
+            x = x.float().to(next(self.parameters()).device)
+
+            print(f'input x shape: {x.shape}')
+            prep = self.preprocess_classification(x, None, task_id=task_id)
+            print(f'preprocessed x shape: {prep["x"].shape}')
+            xs.append(prep["x"].detach().cpu().numpy())
+            prefix_lens.append(prep["prefix_len"])
+            seq_lens.append(prep["seq_len"])
+
+        xs = np.concatenate(xs, axis=0)
+        prefix_lens = np.asarray(prefix_lens, dtype=np.int32)
+        seq_lens = np.asarray(seq_lens, dtype=np.int32)
+
+        print(f'Shape of calibration x: {xs.shape}')
+        print(f'Shape of calibration prefix_len: {prefix_lens.shape}')
+        print(f'Shape of calibration seq_len: {seq_lens.shape}')
+
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        np.savez(
+            save_path,
+            x=xs,
+            prefix_len=prefix_lens,
+            seq_len=seq_lens,
+        )
+
+        print(f"[Calibration] Saved {xs.shape[0]} samples to {save_path}")
 
     def imputation(self, x, x_mark, mask, task_id):
         dataset_name = self.configs_list[task_id][1]['dataset']
@@ -993,3 +1147,40 @@ class Model(nn.Module):
                                        enable_mask=enable_mask)
             return dec_out
         return None
+
+class CompositeModel(Model):
+    def __init__(self, *args, **kwargs):
+        super(CompositeModel, self).__init__(*args, **kwargs)
+        # self.seq_len = kwargs.get('seq_len', 128)
+        # self.dataset_name = kwargs.get('dataset_name', 'uts')
+        # self.prefix_len = self.prompt_tokens[self.dataset_name].shape[2]
+        self.is_tracing = False
+
+    def enable_tracing_mode(self):
+        self.is_tracing = True
+
+    def disable_tracing_mode(self):
+        self.is_tracing = True
+
+    def set_dataset(self, dataset_name):
+        # find the dataset in configs_list
+        is_found = False
+        for i in range(self.num_task):
+            if self.configs_list[i][1]['dataset'] == dataset_name:
+                is_found = True
+                self.dataset_name = dataset_name
+                self.prefix_len = self.prompt_tokens[self.dataset_name].shape[2]
+                self.seq_len = self.configs_list[i][1]['seq_len']
+                break
+        if not is_found:
+            raise ValueError(f"Dataset {dataset_name} not found in configs_list")
+
+    def forward(self, *args, **kwargs):
+        if self.is_tracing:
+            x = args[0]
+            assert x.shape[-2] == self.seq_len, f"Input seq len {x.shape[-2]} does not match model seq len {self.seq_len}"
+            x = self.backbone(x, self.prefix_len, self.seq_len)
+            x = self.cls_head(x)
+        else:
+            x = super().forward(*args, **kwargs)
+        return x

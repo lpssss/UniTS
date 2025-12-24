@@ -3,7 +3,7 @@ import numpy as np
 import tflite_runtime.interpreter as tflite  # lighter than full TensorFlow
 
 # Path to your TFLite model
-MODEL_PATH = ''
+MODEL_PATH = '/home/lps/fyp/UniTS/example_models/test_model_quantized.tflite'
 
 # Number of warmup and timed runs
 WARMUP_RUNS = 5

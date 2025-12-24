@@ -1,0 +1,13 @@
+task_dataset:
+  CLS_WESAD:
+    task_name: classification
+    dataset: WESAD
+    data: UEA
+    embed: timeF
+    root_path: myfypdataset/WESAD
+    seq_len: 1920
+    label_len: 0
+    pred_len: 0
+    enc_in: 8
+    num_class: 3
+    c_out: None
