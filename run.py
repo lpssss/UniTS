@@ -223,5 +223,5 @@ if __name__ == '__main__':
 
         exp = Exp(args)  # set experiments
         print('>>>>>>>testing : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
-        exp.test(setting, load_pretrain=True)
+        exp.test(setting, load_pretrain=True, tflite_path=args.tflite_path)
         torch.cuda.empty_cache()

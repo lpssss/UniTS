@@ -1169,8 +1169,13 @@ class CompositeModel(Model):
             if self.configs_list[i][1]['dataset'] == dataset_name:
                 is_found = True
                 self.dataset_name = dataset_name
+                # print(self.dataset_name)
+                # print(self.prompt_tokens)
+                # print(self.category_tokens)
+                # assert False
                 self.prefix_len = self.prompt_tokens[self.dataset_name].shape[2]
                 self.seq_len = self.configs_list[i][1]['seq_len']
+                self.category_token = self.category_tokens[self.configs_list[i][0]]
                 break
         if not is_found:
             raise ValueError(f"Dataset {dataset_name} not found in configs_list")
@@ -1178,9 +1183,10 @@ class CompositeModel(Model):
     def forward(self, *args, **kwargs):
         if self.is_tracing:
             x = args[0]
-            assert x.shape[-2] == self.seq_len, f"Input seq len {x.shape[-2]} does not match model seq len {self.seq_len}"
+            # assert False, f"x shape: {x.shape}, prefix_len: {self.prefix_len}, seq_len: {self.seq_len}"
+            # assert x.shape[-2] == self.seq_len, f"Input seq len {x.shape[-2]} does not match model seq len {self.seq_len}"
             x = self.backbone(x, self.prefix_len, self.seq_len)
-            x = self.cls_head(x)
+            x = self.cls_head(x, self.category_token)
         else:
             x = super().forward(*args, **kwargs)
         return x

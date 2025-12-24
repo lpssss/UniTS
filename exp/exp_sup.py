@@ -669,7 +669,7 @@ class Exp_All_Task(object):
         return loss
 
 
-    def test(self, setting, load_pretrain=False, test_data_list=None, test_loader_list=None):
+    def test(self, setting, load_pretrain=False, test_data_list=None, test_loader_list=None, tflite_path=None):
         self.path = os.path.join(self.args.checkpoints, setting)
         if not os.path.exists(self.path) and is_main_process():
             os.makedirs(self.path)
@@ -696,6 +696,39 @@ class Exp_All_Task(object):
                 print("no ckpt found!")
                 exit()
 
+        # load tflite model if provided
+        if tflite_path is not None:
+            print(f'Detected tflite model path: {tflite_path}, loading tflite model for classification task evaluation.')
+            import ai_edge_torch
+            self.tflite_model = ai_edge_torch.load(tflite_path)
+
+            # get quantization details
+            input_details = self.tflite_model._interpreter_builder().get_input_details()
+            print("Input details:", input_details)
+
+            # loop through input details to find quantization parameters
+            self.quantization_params = []
+            self.input_dtypes = []
+            for detail in input_details:
+                print(f"Input tensor '{detail['name']}' quantization parameters: {detail['quantization']}")
+                self.quantization_params.append(detail['quantization'])
+                self.input_dtypes.append(detail['dtype'])
+            print("Quantization parameters for all inputs:", self.quantization_params)
+            print("Input data types for all inputs:", self.input_dtypes)
+
+            # get output details
+            output_details = self.tflite_model._interpreter_builder().get_output_details()
+            print("Output details:", output_details)
+
+            self.output_quantization_params = []
+            self.output_dtypes = []
+            for detail in output_details:
+                print(f"Output tensor '{detail['name']}' quantization parameters: {detail['quantization']}")
+                self.output_quantization_params.append(detail['quantization'])
+                self.output_dtypes.append(detail['dtype'])
+            print("Quantization parameters for all outputs:", self.output_quantization_params)
+            print("Output data types for all outputs:", self.output_dtypes)
+
         total_dict = {}
         avg_classification_acc = []
         avg_long_term_forecast_mse = []
@@ -721,8 +754,12 @@ class Exp_All_Task(object):
                 avg_long_term_forecast_mse.append(mse)
                 avg_long_term_forecast_mae.append(mae)
             elif task_name == 'classification':
-                acc = self.test_classification(
-                    setting, test_data, test_loader, data_task_name, task_id)
+                if tflite_path is not None:
+                    acc = self.test_classification_tflite(
+                        setting, test_data, test_loader, data_task_name, task_id)
+                else:
+                    acc = self.test_classification(
+                        setting, test_data, test_loader, data_task_name, task_id)
                 total_dict[data_task_name] = {'acc': acc}
                 if is_main_process():
                     wandb.log({'eval_CLS-acc_'+data_task_name: acc})
@@ -1209,11 +1246,47 @@ class Exp_All_Task(object):
 
                 edge_model.export(tflite_path)
 
+            def trace_dynamic_quantized_model(model, x, tflite_path):
+                import ai_edge_torch
+                import tensorflow as tf
+                tfl_converter_flags={
+                    "optimizations": [tf.lite.Optimize.DEFAULT],
+                }
+
+                edge_model = ai_edge_torch.convert(model.eval(), (x,), _ai_edge_converter_flags=tfl_converter_flags)
+
+                edge_model.export(tflite_path)
+
+            def trace_quantized_model(model, x, tflite_path, calib_data):
+                import ai_edge_torch
+                import tensorflow as tf
+                def representative_dataset():
+                    for i in range(calib_data['x'].shape[0]):
+                        data = calib_data['x'][i:i+1, ...]
+                        yield [data.astype(np.float32)]
+
+                tfl_converter_flags={
+                    "optimizations": [tf.lite.Optimize.DEFAULT],
+                    "target_spec.supported_ops": [tf.lite.OpsSet.TFLITE_BUILTINS_INT8],
+                    "inference_input_type": tf.int8,
+                    "inference_output_type": tf.int8,
+                    "representative_dataset": representative_dataset
+                }
+
+                edge_model = ai_edge_torch.convert(model.eval(), (x,), _ai_edge_converter_flags=tfl_converter_flags)
+
+                edge_model.export(tflite_path)
+
             # read data from calib_data_path npz
             calib_data = np.load(calib_data_path)
             sample_inputs = calib_data['x']
             sample_inputs = torch.from_numpy(sample_inputs).float().to(self.device_id)
-            trace_fp_model(self.model, sample_inputs[0], tflite_path)
+
+            # check pytorch model device
+            # Assuming your model is named 'model'
+            trace_quantized_model(self.model.to('cpu'), sample_inputs[:1, ...].to('cpu'), tflite_path, calib_data)
+            # trace_dynamic_quantized_model(self.model.to('cpu'), sample_inputs[:1, ...].to('cpu'), tflite_path)
+            # trace_fp_model(self.model.to('cpu'), sample_inputs[:1, ...].to('cpu'), tflite_path)
 
         self.model.disable_tracing_mode()
 
@@ -1266,3 +1339,85 @@ class Exp_All_Task(object):
             self.model.save_calibration_npz(
                 test_loader, task_id, save_path=calib_data_path
             )
+
+    def test_classification_tflite(self, setting, test_data, test_loader, data_task_name, task_id):
+        preds = []
+        trues = []
+        self.model.eval()
+        self.model.to('cpu')
+        print(f'Check self.model device: {next(self.model.parameters()).device}')
+        with torch.no_grad():
+            for i, (batch_x, label, padding_mask) in enumerate(test_loader):
+                batch_x = batch_x.float().to('cpu')
+                padding_mask = padding_mask.float().to('cpu')
+                label = label.to('cpu')
+
+                # run preprocess using pytorch model
+                outputs = self.model.preprocess_classification(
+                    batch_x, None,task_id=task_id)
+                
+                # run inference using tflite model
+                tflite_input = outputs['x'].detach().cpu().numpy()
+
+                assert tflite_input.dtype == np.float32, "TFLite model input dtype must be float32"
+
+                input_tensors = [tflite_input]
+
+                # if quantized model, prepare quantized input
+                for i, (q_param, dtype) in enumerate(zip(self.quantization_params, self.input_dtypes)):
+                    if dtype == np.float32 or dtype == np.float16:
+                        # print("Model is not quantized.")
+                        input_tensors[i] = input_tensors[i].astype(dtype)
+                    else:
+                        scale, zero_point = q_param
+                        # print(f"input is quantized with scale: {scale}, zero_point: {zero_point}")
+
+                        input_tensors[i] = (input_tensors[i] / scale + zero_point).astype(dtype)
+
+                # print(f'TFLite input shape: {tflite_input.shape}')
+                outputs = self.tflite_model(*input_tensors)
+                outputs_tensors = [outputs] if not isinstance(outputs, (list, tuple)) else outputs
+
+                assert len(outputs_tensors) == 1, "TFLite model should have only one output for classification task."
+                assert len(self.output_quantization_params) == 1, "Output quantization params should have only one entry for classification task."
+                # dequantize output if needed
+                outputs = outputs_tensors[0]
+                for i, (q_param, dtype) in enumerate(zip(self.output_quantization_params, self.output_dtypes)):
+                    if dtype == np.float32 or dtype == np.float16:
+                        # print("Model output is not quantized.")
+                        outputs = outputs.astype(np.float32)
+                    else:
+                        scale, zero_point = q_param
+                        # print(f"output is quantized with scale: {scale}, zero_point: {zero_point}")
+
+                        outputs = (outputs.astype(np.float32) - zero_point) * scale
+                
+                outputs = torch.from_numpy(outputs).to('cpu')
+                outputs = torch.nn.functional.softmax(outputs)
+
+                predictions = torch.argmax(outputs, dim=1)
+                preds.append(predictions.detach())
+                trues.append(label)
+
+        # preds = gather_tensors_from_all_gpus(
+        #     preds, self.device_id, to_numpy=False)
+        # trues = gather_tensors_from_all_gpus(
+        #     trues, self.device_id, to_numpy=False)
+        preds = torch.cat(preds, 0)
+        trues = torch.cat(trues, 0)
+
+        predictions = preds.cpu().numpy()
+        trues = trues.flatten().cpu().numpy()
+        accuracy = cal_accuracy(predictions, trues)
+
+        print('data_task_name: {} accuracy:{}'.format(
+            data_task_name, accuracy), folder=self.path)
+        
+        print("In-depth classification analysis for task: {}".format(data_task_name), folder=self.path)
+        self.in_depth_classification_analysis(trues, predictions)
+
+        del predictions
+        del trues
+        torch.cuda.empty_cache()
+
+        return accuracy
