@@ -585,9 +585,24 @@ class CLSHead(nn.Module):
         if return_feature:
             return cls_token
         m = category_token.shape[2]
+        # print(cls_token.shape, category_token.shape)
         cls_token = cls_token.expand(B, V, m, C)
-        distance = torch.einsum('nvkc,nvmc->nvm', cls_token, category_token)
+        # print('After expand:')
+        # print(cls_token.shape, category_token.shape)
+        # distance = torch.einsum('nvkc,nvmc->nvm', cls_token, category_token)
 
+        # print('Distance shape:', distance.shape)
+        # assert False
+        cls_token = cls_token.sum(dim=2)
+
+        sub_distances = []
+        # print(category_token.shape)
+        # print(cls_token.shape)
+        for i in range(V):
+            sub_distances.append(F.linear(cls_token[:, i, ...], category_token[0, i, ...]))
+
+        distance = torch.stack(sub_distances, dim=1)
+        # print('Distance shape:', distance.shape)
         distance = distance.mean(dim=1)
         return distance
 
