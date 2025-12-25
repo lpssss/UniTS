@@ -116,7 +116,12 @@ class DynamicLinear(nn.Module):
         if out_features != self.weights.size(0):
             this_bias = F.interpolate(this_bias.unsqueeze(0).unsqueeze(0).unsqueeze(0), size=(
                 1, out_features), mode='bilinear', align_corners=False).squeeze(0).squeeze(0).squeeze(0)
-        return F.linear(x, torch.cat((fixed_weights, dynamic_weights), dim=1), this_bias)
+        # return F.linear(x, torch.cat((fixed_weights, dynamic_weights), dim=1), this_bias)
+        combined_weights = torch.cat((fixed_weights, dynamic_weights), dim=1)
+
+        # Using matmul with broadcasting
+        # for eg, ucihar: [6, 512, 19] @ [19, 9] -> [6, 512, 9]
+        return torch.matmul(x, combined_weights.t()) + this_bias
 
 
 class DynamicLinearMlp(nn.Module):
