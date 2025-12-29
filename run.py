@@ -125,6 +125,9 @@ if __name__ == '__main__':
                         help='lora rank')
     parser.add_argument('--lora_alpha', type=int, default=8,
                         help='lora alpha')
+    
+    parser.add_argument('--use_weighted_loss', action='store_true',
+                        help='use weighted loss', default=False)
 
     args = parser.parse_args()
     # init_distributed_mode(args)

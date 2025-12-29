@@ -213,10 +213,12 @@ class Exp_All_Task(object):
         eff_batch_size = self.args.batch_size * self.args.acc_it * get_world_size()
         real_learning_rate = self.args.learning_rate * eff_batch_size / 32
         self.real_learning_rate = real_learning_rate
+        print(f'args learning rate: {self.args.learning_rate}')
         print("base lr: %.2e" % (self.args.learning_rate * 32 / eff_batch_size))
         print("actual lr: %.2e" % real_learning_rate)
 
         print("accumulate grad iterations: %d" % self.args.acc_it)
+        print("args batch size: %d" % self.args.batch_size)
         print("effective batch size: %d" % eff_batch_size)
         if self.args.layer_decay is not None:
             print("layer decay: %.2f" % self.args.layer_decay)
@@ -349,6 +351,17 @@ class Exp_All_Task(object):
             os.makedirs(path)
         self.path = path
 
+        # replace fc with lora fc
+        replace_fc = self.args.lora
+        lora_r = self.args.lora_r
+        lora_alpha = self.args.lora_alpha
+        if replace_fc:
+            print("Replace fc layers with LoRA layers...")
+            for name, module in self.model.named_modules():
+                if isinstance(module, nn.Linear) and 'blocks.' in name:
+                    self.replace_fc_with_lora(
+                        self.model, name, r=lora_r, lora_alpha=lora_alpha)
+
         # Load pretrained weights (Optional)
         if self.args.pretrained_weight is not None:
             if self.args.pretrained_weight == 'auto':
@@ -394,16 +407,6 @@ class Exp_All_Task(object):
 
             msg = self.model.load_state_dict(ckpt, strict=False)
             print(msg, folder=self.path)
-
-        # replace fc with lora fc
-        replace_fc = self.args.lora
-        lora_r = self.args.lora_r
-        lora_alpha = self.args.lora_alpha
-        if replace_fc:
-            for name, module in self.model.named_modules():
-                if isinstance(module, nn.Linear) and 'blocks.' in name:
-                    self.replace_fc_with_lora(
-                        self.model, name, r=lora_r, lora_alpha=lora_alpha)
 
         # Data
         _, train_loader_list = self._get_data(flag='train')
@@ -676,6 +679,18 @@ class Exp_All_Task(object):
         if test_data_list is None or test_loader_list is None:
             test_data_list, test_loader_list = self._get_data(
                 flag='test', test_anomaly_detection=True)
+
+        # replace fc with lora fc
+        replace_fc = self.args.lora
+        lora_r = self.args.lora_r
+        lora_alpha = self.args.lora_alpha
+        if replace_fc:
+            print("Replace fc layers with LoRA layers...")
+            for name, module in self.model.named_modules():
+                if isinstance(module, nn.Linear) and 'blocks.' in name:
+                    self.replace_fc_with_lora(
+                        self.model, name, r=lora_r, lora_alpha=lora_alpha)
+
         if load_pretrain:
             if os.path.exists(self.args.pretrained_weight):
                 pretrain_weight_path = self.args.pretrained_weight
@@ -921,13 +936,13 @@ class Exp_All_Task(object):
         # Text summary
         report = classification_report(all_labels, all_preds)
 
-        # Print or log the results
-        print("Overall Accuracy: {:.4f}".format(acc))
-        print("Per-class Precision: ", precision)
-        print("Per-class Recall: ", recall)
-        print("Per-class F1-score: ", f1)
-        print("Confusion Matrix:\n", cm)
-        print("Classification Report:\n", report)
+        # log to folder
+        print("Overall Accuracy: {:.4f}".format(acc), folder=self.path)
+        print("Per-class Precision: ", precision, folder=self.path)
+        print("Per-class Recall: ", recall, folder=self.path)
+        print("Per-class F1-score: ", f1, folder=self.path)
+        print("Confusion Matrix:\n", cm, folder=self.path)
+        print("Classification Report:\n", report, folder=self.path)
 
     def test_imputation(self, setting, test_data, test_loader, data_task_name, task_id):
         preds = []
@@ -1296,8 +1311,9 @@ class Exp_All_Task(object):
         if not os.path.exists(self.path) and is_main_process():
             os.makedirs(self.path)
         if test_data_list is None or test_loader_list is None:
+            # to use train data for calibration, and for shuffle
             test_data_list, test_loader_list = self._get_data(
-                flag='test', test_anomaly_detection=True)
+                flag='train', test_anomaly_detection=True)
             
         assert len(test_data_list) == 1
         print(test_data_list)
