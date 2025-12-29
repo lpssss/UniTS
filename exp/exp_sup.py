@@ -1249,6 +1249,17 @@ class Exp_All_Task(object):
 
         assert calib_data_path is not None, "Please provide calibration data path for TFLite conversion."
         assert tflite_path is not None, "Please provide tflite model save path."
+
+        # replace fc with lora fc
+        replace_fc = self.args.lora
+        lora_r = self.args.lora_r
+        lora_alpha = self.args.lora_alpha
+        if replace_fc:
+            print("Replace fc layers with LoRA layers...")
+            for name, module in self.model.named_modules():
+                if isinstance(module, nn.Linear) and 'blocks.' in name:
+                    self.replace_fc_with_lora(
+                        self.model, name, r=lora_r, lora_alpha=lora_alpha)
         
         # assert False
         if load_pretrain:
