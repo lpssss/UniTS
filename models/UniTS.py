@@ -923,7 +923,7 @@ class Model(nn.Module):
         dataloader,
         task_id,
         save_path,
-        max_batches=10
+        max_batches=30
     ):
         """
         Save pre-backbone calibration data into a single NPZ file.
