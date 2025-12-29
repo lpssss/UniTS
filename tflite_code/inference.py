@@ -5,13 +5,50 @@ import time  # Added for timing
 
 # --- 1. Define the TFLite file path ---
 # tflite_path = '/home/lps/fyp/UniTS/example_models/test_model_quantized.tflite'
-# tflite_path = '/home/lps/fyp/UniTS/example_models/test_model_dynamic_quantized.tflite'
-tflite_path = '/home/lps/fyp/UniTS/example_models/test_model_1.tflite'
+tflite_path = '/home/lps/fyp/UniTS/example_models/test_model_dynamic_quantized.tflite'
+# tflite_path = '/home/lps/fyp/UniTS/example_models/test_model_1.tflite'
 
 # --- 2. Load the EdgeModel ---
 try:
     edge_model_loaded = ai_edge_torch.load(tflite_path)
     print(f"Successfully loaded model from {tflite_path}")
+
+    # get input details
+    print(dir(edge_model_loaded))
+    print(edge_model_loaded._interpreter_builder())
+    print(edge_model_loaded._interpreter_builder().get_input_details())
+
+    # get quantization details
+    input_details = edge_model_loaded._interpreter_builder().get_input_details()
+    print("Input details:", input_details)
+
+    # loop through input details to find quantization parameters
+    quantization_params = []
+    input_dtypes = []
+    for detail in input_details:
+        print(f"Input tensor '{detail['name']}' quantization parameters: {detail['quantization']}")
+        quantization_params.append(detail['quantization'])
+        input_dtypes.append(detail['dtype'])
+
+    print("Quantization parameters for all inputs:", quantization_params)
+    print("Input data types for all inputs:", input_dtypes)
+
+    input_tensors = [np.random.randn(*detail['shape']).astype(np.float32) for detail in input_details]
+
+    # if quantized model, prepare quantized input
+    for i, (q_param, dtype) in enumerate(zip(quantization_params, input_dtypes)):
+        if dtype == np.float32 or dtype == np.float16:
+            print("Model is not quantized.")
+            input_tensors[i] = input_tensors[i].astype(dtype)
+        else:
+            scale, zero_point = q_param
+            print(f"Model is quantized with scale: {scale}, zero_point: {zero_point}")
+
+            input_tensors[i] = (input_tensors[i] / scale + zero_point).astype(dtype)
+
+
+
+    assert False, 'stop here'
 
     # --- 3. Prepare the input data ---
     input_shape = (1, 1, 140, 128) 
@@ -23,7 +60,6 @@ try:
     print("Dummy input shape:", dummy_input.shape)
 
     print(dummy_input)
-
 
     # --- 4. Warm-up Phase ---
     # Run the model a few times to initialize the interpreter/hardware
