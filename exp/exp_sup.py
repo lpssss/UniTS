@@ -125,7 +125,7 @@ def change_config_list_pred_len(task_data_config_list, task_data_config, offset)
     return new_task_data_config_list, new_task_data_config
 
 
-def get_loss_by_name(loss_name):
+def get_loss_by_name(loss_name, class_weights=None):
     if loss_name == 'MSE':
         return nn.MSELoss()
     elif loss_name == 'MAPE':
@@ -135,7 +135,7 @@ def get_loss_by_name(loss_name):
     elif loss_name == 'SMAPE':
         return smape_loss()
     elif loss_name == 'CE':
-        return nn.CrossEntropyLoss()
+        return nn.CrossEntropyLoss(weight=class_weights)
     else:
         print("no loss function found!")
         exit()
@@ -251,7 +251,7 @@ class Exp_All_Task(object):
                 else:
                     print("this task has no loss now!", folder=self.path)
                     exit()
-            criterion_list.append(get_loss_by_name(loss_name))
+            criterion_list.append(get_loss_by_name(loss_name, class_weights=each_config[1].get('class_weights', None)))
 
         return criterion_list
 
@@ -299,6 +299,30 @@ class Exp_All_Task(object):
         print("Trainable Parameters number for UniTS {} M".format(
             model_total_params/1e6), folder=self.path)
 
+
+    def get_class_weights_df(self, label_df):
+        """
+        label_df: A pandas Series or DataFrame column containing integer labels.
+        Example: df['target_column']
+        """
+        # 1. Count occurrences of each class
+        # sort_index() is crucial to ensure Class 0 is first, then Class 1, etc.
+        counts = label_df.value_counts().sort_index()
+        
+        total_samples = len(label_df)
+        num_classes = len(counts)
+        
+        # 2. Calculate Inverse Frequency: Total / (Classes * Count_per_Class)
+        weights = total_samples / (num_classes * counts.values)
+        
+        # 3. Convert to Torch Tensor
+        weights_tensor = torch.tensor(weights, dtype=torch.float)
+        
+        # 4. Print for verification
+        for i, w in enumerate(weights):
+            print(f"Class {i} (n={counts.values[i]}): Weight = {w:.4f}")
+            
+        return weights_tensor
 
     # ============================================================
     # Replace existing nn.Linear with LoRALinear in-place
@@ -436,6 +460,15 @@ class Exp_All_Task(object):
         
         self.calculate_trainable_params(print_trainable=True)
         # exit(0)
+
+        # calculate class weights for classification tasks
+        if self.args.use_weighted_loss:
+            for task_id, each_config in enumerate(self.task_data_config_list):
+                if each_config[1]['task_name'] == 'classification':
+                    train_data_set = train_loader_list[task_id].dataset
+                    class_weights = self.get_class_weights_df(train_data_set.labels_df)
+                    each_config[1]['class_weights'] = class_weights.to(self.device_id)
+                    print(f"Class weights for task {each_config[0]}: {each_config[1]['class_weights']}", folder=self.path)
 
         # Optimizer and Criterion
         model_optim = self._select_optimizer()
