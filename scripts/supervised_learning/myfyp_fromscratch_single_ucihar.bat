@@ -15,17 +15,18 @@ python run.py ^
   --is_training 1 ^
   --model_id %exp_name% ^
   --model %model_name% ^
-  --lradj supervised ^
+  --lradj warmup_scratch ^
   --prompt_num 10 ^
   --patch_len 16 ^
   --stride 16 ^
   --e_layers 3 ^
   --d_model %d_model% ^
   --des "Exp" ^
-  --learning_rate 1e-2 ^
+  --learning_rate 0.000015 ^
   --weight_decay 5e-6 ^
-  --train_epochs 20 ^
-  --batch_size 32 ^
+  --train_epochs 40 ^
+  --warmup_epochs 5 ^
+  --batch_size 64 ^
   --acc_it 32 ^
   --debug %wandb_mode% ^
   --project_name %prj_name% ^

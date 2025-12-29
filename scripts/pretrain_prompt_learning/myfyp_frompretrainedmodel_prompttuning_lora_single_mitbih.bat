@@ -33,4 +33,5 @@ python run.py ^
   --project_name %prj_name% ^
   --clip_grad 100 ^
   --pretrained_weight %ckpt_path% ^
-  --task_data_config_path %task_data_config%
+  --task_data_config_path %task_data_config% ^
+  --lora
