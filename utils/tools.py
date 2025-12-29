@@ -2,13 +2,40 @@ import numpy as np
 import torch
 import matplotlib.pyplot as plt
 from torch import inf
+import math
 
 plt.switch_backend('agg')
 
 
 def adjust_learning_rate(optimizer, epoch, base_lr, args):
     assert args.prompt_tune_epoch >= 0, "args.prompt_tune_epoch >=0!"
-    if args.lradj == 'prompt_tuning':
+    warmup_epochs = getattr(args, 'warmup_epochs', 5) 
+    
+    if args.lradj == 'warmup_cosine':
+        if epoch < warmup_epochs:
+            # Linear Warmup
+            lr = base_lr * (epoch + 1) / warmup_epochs
+        else:
+            # Cosine Decay
+            # Progress from 0 to 1 after the warmup period
+            total_epochs = args.train_epochs + warmup_epochs
+            epoch_progress = (epoch - warmup_epochs) / (total_epochs - warmup_epochs)
+            # Cosine formula: starts at base_lr and stays higher longer than exponential
+            lr = base_lr * 0.5 * (1.0 + math.cos(math.pi * epoch_progress))
+        lr_adjust = {epoch: lr}
+    elif args.lradj == 'warmup_scratch':
+        if epoch < warmup_epochs:
+            # print('Warmup epoch {}'.format(epoch))
+            # print('Base LR: {}'.format(base_lr))
+            # Linear Warmup: starts near 0 and reaches base_lr at warmup_epochs
+            lr = base_lr * (epoch + 1) / warmup_epochs
+        else:
+            # Exponential Decay after warmup
+            # Reduces LR by half every 'k' epochs (e.g., every 2 epochs)
+            k = 2 
+            lr = base_lr * (0.5 ** ((epoch - warmup_epochs) // k))
+        lr_adjust = {epoch: lr}
+    elif args.lradj == 'prompt_tuning':
         if epoch < args.prompt_tune_epoch:
             lr_adjust = {epoch: args.learning_rate * (0.5 ** ((epoch) // 1))}
         elif epoch == args.prompt_tune_epoch:
