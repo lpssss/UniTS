@@ -650,9 +650,24 @@ class UEAloader(Dataset):
         self.feature_df = self.all_df
 
         # pre_process
-        normalizer = Normalizer()
-        self.feature_df = normalizer.normalize(self.feature_df)
+        # normalizer = Normalizer()
+        # self.feature_df = normalizer.normalize(self.feature_df)
         # print(len(self.all_IDs))
+        # If mean is already ~0 and std is ~1, it's already Z-scored.
+        # check if the data is already standard-looking
+        mean = self.feature_df.values.mean()
+        std = self.feature_df.values.std()
+        print(f"Data mean: {mean}, std: {std}")
+        # assert False
+        if abs(mean) < 0.1 and abs(1 - std) < 0.1:
+            print("Detected existing Z-score normalization. Skipping to avoid signal degradation.")
+        else:
+            normalizer = Normalizer() # Your Z-score normalizer
+            self.feature_df = normalizer.normalize(self.feature_df)
+
+        # Run this after normalization
+        # print(self.feature_df.describe())
+        # assert False
 
     def load_all(self, root_path, file_list=None, flag=None):
         """
