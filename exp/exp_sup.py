@@ -1424,6 +1424,8 @@ class Exp_All_Task(object):
 
         assert calib_data_path is not None, "Please provide calibration data path for TFLite conversion."
 
+        self.init_lora()
+
         if load_pretrain:
             if os.path.exists(self.args.pretrained_weight):
                 pretrain_weight_path = self.args.pretrained_weight
