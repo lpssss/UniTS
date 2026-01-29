@@ -1,52 +1,115 @@
-import time
+import torch
+import ai_edge_torch
 import numpy as np
-import tflite_runtime.interpreter as tflite  # lighter than full TensorFlow
+import time  # Added for timing
+from memory_profiler import profile
+import argparse
 
-# Path to your TFLite model
-MODEL_PATH = '/home/lps/fyp/UniTS/example_models/test_model_quantized.tflite'
+# --- 1. Define the TFLite file path ---
+# tflite_path = '/home/lps/fyp/UniTS/example_models/test_model_quantized.tflite'
+tflite_path = '/home/lps/UniTS/example_models/test_model_dynamic_quantized.tflite'
+# tflite_path = '/home/lps/fyp/UniTS/example_models/test_model_1.tflite'
 
-# Number of warmup and timed runs
-WARMUP_RUNS = 5
-MEASURE_RUNS = 50
+# warm_up_runs = 1
+# measurement_runs = 1
+warm_up_runs = 10
+measurement_runs = 100
 
-# Load TFLite model and allocate tensors
-interpreter = tflite.Interpreter(model_path=MODEL_PATH)
-interpreter.allocate_tensors()
+@profile
+def main(args):
+    tflite_path = args.tflite_path
+    warm_up_runs = args.warm_up_runs
+    measurement_runs = args.measurement_runs
 
-# Get input and output details
-input_details = interpreter.get_input_details()
-output_details = interpreter.get_output_details()
+    # --- 2. Load the EdgeModel ---
+    try:
+        edge_model_loaded = ai_edge_torch.load(tflite_path)
+        print(f"Successfully loaded model from {tflite_path}")
 
-# Generate random input data (adjust shape and dtype as needed)
-input_shape = input_details[0]['shape']
-input_dtype = input_details[0]['dtype']
-input_data = np.random.rand(*input_shape).astype(input_dtype)
+        # get input details
+        print(dir(edge_model_loaded))
+        print(edge_model_loaded._interpreter_builder())
+        print(edge_model_loaded._interpreter_builder().get_input_details())
 
-# Warmup runs (stabilize caches, CPU freq scaling, etc.)
-print("Warming up...")
-for _ in range(WARMUP_RUNS):
-    interpreter.set_tensor(input_details[0]['index'], input_data)
-    interpreter.invoke()
+        # get quantization details
+        input_details = edge_model_loaded._interpreter_builder().get_input_details()
+        print("Input details:", input_details)
 
-# Measure inference latency
-print(f"Measuring latency over {MEASURE_RUNS} runs...")
-times = []
-for i in range(MEASURE_RUNS):
-    start = time.perf_counter()
-    interpreter.set_tensor(input_details[0]['index'], input_data)
-    interpreter.invoke()
-    end = time.perf_counter()
-    times.append((end - start) * 1000)  # convert to ms
+        # loop through input details to find quantization parameters
+        quantization_params = []
+        input_dtypes = []
+        for detail in input_details:
+            print(f"Input tensor '{detail['name']}' quantization parameters: {detail['quantization']}")
+            quantization_params.append(detail['quantization'])
+            input_dtypes.append(detail['dtype'])
 
-avg_latency = np.mean(times)
-std_latency = np.std(times)
-p50 = np.percentile(times, 50)
-p90 = np.percentile(times, 90)
-p99 = np.percentile(times, 99)
+        print("Quantization parameters for all inputs:", quantization_params)
+        print("Input data types for all inputs:", input_dtypes)
 
-print("\n=== Inference Latency Results (ms) ===")
-print(f"Average latency: {avg_latency:.2f} ms")
-print(f"Std deviation : {std_latency:.2f} ms")
-print(f"P50 latency   : {p50:.2f} ms")
-print(f"P90 latency   : {p90:.2f} ms")
-print(f"P99 latency   : {p99:.2f} ms")
+        input_tensors = [np.random.randn(*detail['shape']).astype(np.float32) for detail in input_details]
+
+        # if quantized model, prepare quantized input
+        for i, (q_param, dtype) in enumerate(zip(quantization_params, input_dtypes)):
+            if dtype == np.float32 or dtype == np.float16:
+                print("Model is not quantized.")
+                input_tensors[i] = input_tensors[i].astype(dtype)
+            else:
+                scale, zero_point = q_param
+                print(f"Model is quantized with scale: {scale}, zero_point: {zero_point}")
+
+                input_tensors[i] = (input_tensors[i] / scale + zero_point).astype(dtype)
+
+        # --- 4. Warm-up Phase ---
+        # Run the model a few times to initialize the interpreter/hardware
+        print("Warming up...")
+        for _ in range(warm_up_runs):
+            _ = edge_model_loaded(*input_tensors)
+        # --- 5. Latency Measurement Loop ---
+        num_runs = measurement_runs
+        latencies = []
+
+        print(f"Starting inference benchmark for {num_runs} iterations...")
+        for i in range(num_runs):
+            start_time = time.perf_counter()
+            output = edge_model_loaded(*input_tensors)
+            end_time = time.perf_counter()
+            
+            # Calculate duration in milliseconds
+            latency_ms = (end_time - start_time) * 1000
+            latencies.append(latency_ms)
+
+        # --- 6. Results Calculation ---
+        avg_latency = np.mean(latencies)
+        median_latency = np.median(latencies)
+        std_dev = np.std(latencies)
+        fps = 1000 / avg_latency
+
+        print("-" * 30)
+        print(f"Inference Results ({num_runs} runs):")
+        print(f"  Average Latency: {avg_latency:.2f} ms")
+        print(f"  Median Latency:  {median_latency:.2f} ms")
+        print(f"  Std Deviation:   {std_dev:.2f} ms")
+        print(f"  Throughput:      {fps:.2f} FPS")
+        print("-" * 30)
+        
+        # Print output shape for verification
+        print(f'Output length: {len(output)}')
+        print("First Output shape:", output[0].shape)
+        
+    except FileNotFoundError:
+        print(f"Error: The file '{tflite_path}' was not found.")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Measure TFLite Model Latency")
+    parser.add_argument('--tflite_path', type=str, default=tflite_path, help='Path to the TFLite model file')
+    parser.add_argument('--warm_up_runs', type=int, default=warm_up_runs, help='Number of warm-up runs')
+    parser.add_argument('--measurement_runs', type=int, default=measurement_runs, help='Number of measurement runs')
+    args = parser.parse_args()
+
+    tflite_path = args.tflite_path
+    warm_up_runs = args.warm_up_runs
+    measurement_runs = args.measurement_runs
+
+    main(args)

@@ -10,7 +10,7 @@ ckpt_path="/home/lps/fyp//UniTS/checkpoints/ALL_task_myfyp_frompretrainedmodel_x
 random_port=1234
 prj_name="test_run_x128_prompt_tuning"
 task_data_config="data_provider/myfyp_single_ucihar.yaml"
-tflite_path="/home/lps/fyp/UniTS/tflite_models/myfyp_frompretrainedmodel_x128_prompttuning_single_ucihar_dq.tflite"
+tflite_path="/home/lps/UniTS/tflite_models/myfyp_frompretrainedmodel_x128_prompttuning_single_ucihar_dq.tflite"
 
 # Run the training script
 python run.py \
