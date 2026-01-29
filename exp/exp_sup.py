@@ -1365,6 +1365,19 @@ class Exp_All_Task(object):
 
                 edge_model.export(tflite_path)
 
+            def trace_fp16_model(model, x, tflite_path):
+                import ai_edge_torch
+                import tensorflow as tf
+                tfl_converter_flags={
+                    "optimizations": [tf.lite.Optimize.DEFAULT],
+                    "target_spec": {"supported_ops": [tf.float16]},
+                }
+
+                print(f'Sample input shape: {x.shape}')
+                edge_model = ai_edge_torch.convert(model.eval(), (x,), _ai_edge_converter_flags=tfl_converter_flags)
+
+                edge_model.export(tflite_path)
+
             def trace_dynamic_quantized_model(model, x, tflite_path):
                 import ai_edge_torch
                 import tensorflow as tf
@@ -1403,9 +1416,20 @@ class Exp_All_Task(object):
 
             # check pytorch model device
             # Assuming your model is named 'model'
-            trace_quantized_model(self.model.to('cpu'), sample_inputs[:1, ...].to('cpu'), tflite_path, calib_data)
-            # trace_dynamic_quantized_model(self.model.to('cpu'), sample_inputs[:1, ...].to('cpu'), tflite_path)
-            # trace_fp_model(self.model.to('cpu'), sample_inputs[:1, ...].to('cpu'), tflite_path)
+            if self.args.convert_to_tflite_dtype == 'int8':
+                print("Converting to INT8 quantized TFLite model...")
+                trace_quantized_model(self.model.to('cpu'), sample_inputs[:1, ...].to('cpu'), tflite_path, calib_data)
+            elif self.args.convert_to_tflite_dtype == 'dq':
+                print("Converting to DQ quantized TFLite model...")
+                trace_dynamic_quantized_model(self.model.to('cpu'), sample_inputs[:1, ...].to('cpu'), tflite_path)
+            elif self.args.convert_to_tflite_dtype == 'fp32':
+                print("Converting to FLOAT32 TFLite model...")
+                trace_fp_model(self.model.to('cpu'), sample_inputs[:1, ...].to('cpu'), tflite_path)
+            elif self.args.convert_to_tflite_dtype == 'fp16':
+                print("Converting to FLOAT16 TFLite model...")
+                trace_fp16_model(self.model.to('cpu'), sample_inputs[:1, ...].to('cpu'), tflite_path)
+            else:
+                raise ValueError("Unsupported TFLite data type. Supported types are: int8, dq, fp32.")           
 
         self.model.disable_tracing_mode()
 

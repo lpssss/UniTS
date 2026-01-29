@@ -19,6 +19,8 @@ if __name__ == '__main__':
                         help='save calibration data for tflite quantization', default=False)
     parser.add_argument('--convert_to_tflite', action='store_true',
                         help='convert model to tflite', default=False)
+    parser.add_argument('--convert_to_tflite_dtype', type=str, default='int8',
+                        help='dtype for tflite quantization, options: [fp32, fp16, dq, int8]')
     parser.add_argument('--calib_data_path', type=str, default=None,
                         help='path to calibration data for tflite quantization')
     parser.add_argument('--tflite_path', type=str, default=None,
