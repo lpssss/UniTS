@@ -39,6 +39,12 @@ class BalancedDataLoaderIterator:
 
     def __len__(self):
         return self.total_length
+    
+    def calc_total_samples(self):
+        total_samples = 0
+        for dataloader in self.dataloaders:
+            total_samples += len(dataloader.dataset)
+        return total_samples
 
     def generate_fake_samples_for_batch(self, dataloader_id, batch_size):
         if dataloader_id >= len(self.dataloaders) or dataloader_id < 0:

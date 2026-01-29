@@ -299,6 +299,30 @@ class Exp_All_Task(object):
         print("Trainable Parameters number for UniTS {} M".format(
             model_total_params/1e6), folder=self.path)
 
+    
+
+    def plot_loss_curve(self, losses, title="Training Loss Over Time"):
+        """
+        Plots the loss curve from a list of loss values.
+        """
+        import matplotlib.pyplot as plt
+        plt.figure(figsize=(8, 5))
+        plt.plot(losses, color='tab:red', linewidth=2, label='Loss')
+        
+        # Adding metadata to the plot
+        plt.title(title, fontsize=14)
+        plt.xlabel('Epochs/Iterations', fontsize=12)
+        plt.ylabel('Loss Value', fontsize=12)
+        plt.grid(True, linestyle='--', alpha=0.6)
+        plt.legend()
+        
+        # Save the file before showing it
+        # dpi=300 is standard for high-quality reports
+        filepath = os.path.join(self.path, 'loss_curve.png')
+        plt.savefig(filepath, dpi=300, bbox_inches='tight')
+        print(f"Plot saved successfully as {filepath}")
+        
+        plt.close() # Close the plot to free up memory
 
     def get_class_weights_df(self, label_df):
         """
@@ -374,6 +398,8 @@ class Exp_All_Task(object):
         if not os.path.exists(path) and is_main_process():
             os.makedirs(path)
         self.path = path
+
+        train_loss_per_epoch_list = []
 
         # replace fc with lora fc
         replace_fc = self.args.lora
@@ -482,6 +508,11 @@ class Exp_All_Task(object):
         torch.cuda.synchronize()
         # dist.barrier()
 
+        # profile training step
+        if self.args.profile_training_step:
+            self.profile_training_step(model_optim, data_loader_cycle, criterion_list, 1, train_steps, scaler)
+            return self.model
+
         self.start_training = True
 
         for epoch in range(self.args.train_epochs+self.args.prompt_tune_epoch):
@@ -495,6 +526,8 @@ class Exp_All_Task(object):
 
             train_loss = self.train_one_epoch(
                 model_optim, data_loader_cycle, criterion_list, epoch, train_steps, scaler)
+            
+            train_loss_per_epoch_list.append(train_loss)
 
             # we report the results of last epoch and not find the best epoch based on val set, since some datasets do not have val set
             avg_cls_acc, avg_forecast_mse, avg_forecast_mae = self.test(
@@ -508,12 +541,15 @@ class Exp_All_Task(object):
                 else:
                     torch.save(self.model.state_dict(),
                                os.path.join(path, 'checkpoint.pth'))
+            print(f'Loss for epoch {epoch}: {train_loss}', folder=self.path)
 
         if is_main_process():
             wandb.log({'Final_LF-mse': avg_forecast_mse,
                        'Final_LF-mae': avg_forecast_mae, 'Final_CLS-acc': avg_cls_acc})
             print("Final score: LF-mse: {}, LF-mae: {}, CLS-acc {}".format(avg_forecast_mse,
                                                                            avg_forecast_mae, avg_cls_acc), folder=self.path)
+            # plot loss curve
+            self.plot_loss_curve(train_loss_per_epoch_list, title="Training Loss Over Epochs")
 
         return self.model
 
@@ -1481,3 +1517,50 @@ class Exp_All_Task(object):
         torch.cuda.empty_cache()
 
         return accuracy
+    
+    def profile_training_step(self, model_optim, data_loader_cycle, criterion_list, epoch, train_steps, scaler):
+        """
+        Measures peak memory usage and training throughput (samples/sec).
+        """
+        
+        # 1. Warm-up
+        # We run a few steps to initialize CUDA kernels and memory allocators
+        print("Starting warm-up...")
+
+        self.train_one_epoch(model_optim, data_loader_cycle, criterion_list, epoch, train_steps, scaler)
+
+        # 2. Reset Memory Stats
+        torch.cuda.empty_cache()
+        torch.cuda.reset_peak_memory_stats()
+        
+        # 3. Benchmark Loop
+        print("Starting benchmark...")
+        # print(f'len(data_loader_cycle): {data_loader_cycle.calc_total_samples()}')
+        start_time = time.perf_counter()
+        
+        # Track a fixed number of batches for consistent measurement
+        dataloader_loop_count = 2
+        total_samples = data_loader_cycle.calc_total_samples() * dataloader_loop_count
+        
+        while True:
+            self.train_one_epoch(model_optim, data_loader_cycle, criterion_list, epoch, train_steps, scaler)
+
+            dataloader_loop_count -= 1
+            if dataloader_loop_count <= 0:
+                break
+
+        # Synchronize to ensure all GPU work is finished before stopping the clock
+        torch.cuda.synchronize()
+        end_time = time.perf_counter()
+
+        # 4. Calculations
+        duration = end_time - start_time
+        throughput = total_samples / duration
+        peak_mem_gb = torch.cuda.max_memory_allocated() / (1024 ** 3)
+
+        print("-" * 30, folder=self.path)
+        print(f"Peak Memory: {peak_mem_gb:.3f} GB", folder=self.path)
+        print(f"Throughput:  {throughput:.2f} samples/sec", folder=self.path)
+        print("-" * 30, folder=self.path)
+        
+        return {"peak_memory_gb": peak_mem_gb, "throughput": throughput}

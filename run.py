@@ -27,6 +27,8 @@ if __name__ == '__main__':
                         default='test', help='model id')
     parser.add_argument('--model', type=str, required=True, default='UniTS',
                         help='model name')
+    parser.add_argument('--profile_training_step', action='store_true',
+                        help='profile the training step', default=False)
 
     # data loader
     parser.add_argument('--data', type=str, required=False,
