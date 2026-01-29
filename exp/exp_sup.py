@@ -168,6 +168,7 @@ class Exp_All_Task(object):
         print("device id", self.device_id)
         self.model = self._build_model()
         self.start_training = False
+        self.is_lora_initiated = False
 
     def _build_model(self, ddp=False):
         import importlib
@@ -298,6 +299,18 @@ class Exp_All_Task(object):
         model_total_params = sum(model_param)
         print("Trainable Parameters number for UniTS {} M".format(
             model_total_params/1e6), folder=self.path)
+        
+        return model_total_params
+
+    def calculate_all_params(self, print_trainable=False):
+        model_param = []
+        for name, param in self.model.named_parameters():
+            model_param.append(param.numel())
+        model_total_params = sum(model_param)
+        print("Trainable Parameters number for UniTS {} M".format(
+            model_total_params/1e6), folder=self.path)
+        
+        return model_total_params
 
     
 
@@ -401,16 +414,11 @@ class Exp_All_Task(object):
 
         train_loss_per_epoch_list = []
 
-        # replace fc with lora fc
-        replace_fc = self.args.lora
-        lora_r = self.args.lora_r
-        lora_alpha = self.args.lora_alpha
-        if replace_fc:
-            print("Replace fc layers with LoRA layers...")
-            for name, module in self.model.named_modules():
-                if isinstance(module, nn.Linear) and 'blocks.' in name:
-                    self.replace_fc_with_lora(
-                        self.model, name, r=lora_r, lora_alpha=lora_alpha)
+        initial_model_params = self.calculate_all_params()
+
+        self.init_lora()
+
+        final_model_params = self.calculate_all_params()
 
         # Load pretrained weights (Optional)
         if self.args.pretrained_weight is not None:
@@ -482,10 +490,18 @@ class Exp_All_Task(object):
             model_total_params/1e6), folder=self.path)
         
         print("Choosing training parts...")
-        self.choose_training_parts(lora_tune=replace_fc)
+        self.choose_training_parts(lora_tune=self.args.lora)
         
-        self.calculate_trainable_params(print_trainable=True)
+        trainable_params = self.calculate_trainable_params(print_trainable=True)
         # exit(0)
+
+        # print model params summary
+        print('------------------- Model Parameters Summary ------------------', folder=self.path)
+        print(f"Initial model params: {initial_model_params} | Final model params: {final_model_params} | Trainable params: {trainable_params}", folder=self.path)
+        print(f'Lora parameters increase: {final_model_params - initial_model_params}, ratio {(final_model_params - initial_model_params) / initial_model_params:.2f} ', folder=self.path)
+        print(f'Lora args enable: {self.args.lora}, r: {self.args.lora_r}, lora alpha: {self.args.lora_alpha}', folder=self.path)
+        print(f'Trainable parameters percentage: {trainable_params / final_model_params * 100:.2f} %', folder=self.path)
+        print('---------------------------------------------------------------', folder=self.path)
 
         # calculate class weights for classification tasks
         if self.args.use_weighted_loss:
@@ -520,9 +536,9 @@ class Exp_All_Task(object):
                                  self.real_learning_rate, self.args)
             # Prompt learning
             if (epoch+1) <= self.args.prompt_tune_epoch:
-                self.choose_training_parts(prompt_tune=True, lora_tune=replace_fc)
+                self.choose_training_parts(prompt_tune=True, lora_tune=self.args.lora)
             else:
-                self.choose_training_parts(prompt_tune=False, lora_tune=replace_fc)
+                self.choose_training_parts(prompt_tune=False, lora_tune=self.args.lora)
 
             train_loss = self.train_one_epoch(
                 model_optim, data_loader_cycle, criterion_list, epoch, train_steps, scaler)
@@ -739,6 +755,30 @@ class Exp_All_Task(object):
             loss = criterion(outputs, batch_x)
 
         return loss
+    
+    def init_lora(self):
+        # replace fc with lora fc
+        replace_fc = self.args.lora
+        lora_r = self.args.lora_r
+        lora_alpha = self.args.lora_alpha
+        if replace_fc and not self.is_lora_initiated:
+            from models.UniTS import SeqAttBlock, MLPBlock, VarAttBlock
+            print("Replace fc layers with LoRA layers...")
+            target_modules = set()
+            if 'attn' in self.args.lora_target_modules:
+                target_modules.add(SeqAttBlock)
+                target_modules.add(VarAttBlock)
+            if 'mlp' in self.args.lora_target_modules:
+                target_modules.add(MLPBlock)
+            print("Target modules for LoRA:", target_modules, folder=self.path)
+            for name, module in self.model.named_modules():
+                if any(isinstance(module, t) for t in target_modules) and 'blocks.' in name:
+                    for sub_name, sub_module in module.named_modules():
+                        if isinstance(sub_module, nn.Linear):
+                            full_name = name + '.' + sub_name
+                            self.replace_fc_with_lora(
+                                self.model, full_name, r=lora_r, lora_alpha=lora_alpha)
+            self.is_lora_initiated = True
 
 
     def test(self, setting, load_pretrain=False, test_data_list=None, test_loader_list=None, tflite_path=None):
@@ -750,15 +790,7 @@ class Exp_All_Task(object):
                 flag='test', test_anomaly_detection=True)
 
         # replace fc with lora fc
-        replace_fc = self.args.lora
-        lora_r = self.args.lora_r
-        lora_alpha = self.args.lora_alpha
-        if replace_fc:
-            print("Replace fc layers with LoRA layers...")
-            for name, module in self.model.named_modules():
-                if isinstance(module, nn.Linear) and 'blocks.' in name:
-                    self.replace_fc_with_lora(
-                        self.model, name, r=lora_r, lora_alpha=lora_alpha)
+        self.init_lora()                    
 
         if load_pretrain:
             if os.path.exists(self.args.pretrained_weight):
@@ -1287,15 +1319,7 @@ class Exp_All_Task(object):
         assert tflite_path is not None, "Please provide tflite model save path."
 
         # replace fc with lora fc
-        replace_fc = self.args.lora
-        lora_r = self.args.lora_r
-        lora_alpha = self.args.lora_alpha
-        if replace_fc:
-            print("Replace fc layers with LoRA layers...")
-            for name, module in self.model.named_modules():
-                if isinstance(module, nn.Linear) and 'blocks.' in name:
-                    self.replace_fc_with_lora(
-                        self.model, name, r=lora_r, lora_alpha=lora_alpha)
+        self.init_lora()
         
         # assert False
         if load_pretrain:

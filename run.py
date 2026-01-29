@@ -127,6 +127,8 @@ if __name__ == '__main__':
                         help='lora rank')
     parser.add_argument('--lora_alpha', type=int, default=8,
                         help='lora alpha')
+    parser.add_argument('--lora_target_modules', type=str, nargs='+',
+                        default=['attn', 'mlp'], help='lora target modules to be replaced')
     
     parser.add_argument('--use_weighted_loss', action='store_true',
                         help='use weighted loss', default=False)
