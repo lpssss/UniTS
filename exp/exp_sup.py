@@ -675,7 +675,7 @@ class Exp_All_Task(object):
         batch_x_mark = None
         batch_y_mark = None
 
-        with torch.amp.autocast(device_type="cuda", enabled=False):
+        with torch.amp.autocast(device_type="cuda", enabled=self.args.enable_mixed_precision_training):
             outputs = model(batch_x, batch_x_mark, dec_inp,
                             batch_y_mark, task_id=task_id, task_name=task_name)
             f_dim = -1 if features == 'MS' else 0
@@ -698,7 +698,7 @@ class Exp_All_Task(object):
         padding_mask = padding_mask.float().to(self.device_id)
         label = label.to(self.device_id)
         assert torch.isfinite(batch_x).all(), "Inputs contain NaN/Inf"
-        with torch.amp.autocast(device_type="cuda", enabled=False):
+        with torch.amp.autocast(device_type="cuda", enabled=self.args.enable_mixed_precision_training):
             outputs = model(batch_x, padding_mask, None,
                             None, task_id=task_id, task_name=task_name)
             # print(outputs)
@@ -730,7 +730,7 @@ class Exp_All_Task(object):
         inp, mask = apply_random_mask_for_imputation(
             batch_x, self.args.patch_len, self.args.mask_rate)
 
-        with torch.amp.autocast(device_type="cuda", enabled=False):
+        with torch.amp.autocast(device_type="cuda", enabled=self.args.enable_mixed_precision_training):
             outputs = model(inp, None, None,
                             None, task_id=task_id, mask=mask, task_name=task_name)
         f_dim = -1 if features == 'MS' else 0
@@ -747,7 +747,7 @@ class Exp_All_Task(object):
 
         batch_x = batch_x.float().to(self.device_id)
 
-        with torch.amp.autocast(device_type="cuda", enabled=False):
+        with torch.amp.autocast(device_type="cuda", enabled=self.args.enable_mixed_precision_training):
             outputs = model(batch_x, None, None,
                             None, task_id=task_id, task_name=task_name)
             f_dim = -1 if features == 'MS' else 0
@@ -938,7 +938,7 @@ class Exp_All_Task(object):
                 batch_x_mark = None
                 batch_y_mark = None
 
-                with torch.amp.autocast(device_type="cuda", enabled=False):
+                with torch.amp.autocast(device_type="cuda", enabled=self.args.enable_mixed_precision_training):
                     outputs = self.model(
                         batch_x, batch_x_mark, dec_inp, batch_y_mark, task_id=task_id, task_name='long_term_forecast')
 
@@ -1178,7 +1178,7 @@ class Exp_All_Task(object):
                 batch_x_mark = None
                 batch_y_mark = None
 
-                with torch.amp.autocast(device_type="cuda", enabled=False):
+                with torch.amp.autocast(device_type="cuda", enabled=self.args.enable_mixed_precision_training):
                     outputs = self.model(
                         batch_x, batch_x_mark, dec_inp, batch_y_mark, task_id=task_id, task_name='long_term_forecast')
 
