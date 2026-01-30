@@ -3,20 +3,21 @@
 # Set environment variables
 model_name="UniTS"
 d_model=128
-exp_name="myfyp_frompretrainedmodel_x128_prompttuning_single_ucihar_convert_tflite"
+exp_name="myfyp_frompretrainedmodel_x128_prompttuning_lora_single_ucihar_convert_tflite_fp32"
 wandb_mode="disabled"
 # Note: Ensure paths are correct for a Linux environment (use / instead of \)
-ckpt_path="/home/lps/fyp//UniTS/checkpoints/ALL_task_myfyp_frompretrainedmodel_x128_prompttuning_single_ucihar_UniTS_All_ftM_dm128_el3_Exp_0/ptune_checkpoint.pth"
+ckpt_path="/home/lps/UniTS/training_checkpoints/ALL_task_myfyp_frompretrainedmodel_x128_prompttuning_lora_single_ucihar_debug_UniTS_All_ftM_dm128_el3_Exp_0/ptune_checkpoint.pth"
 random_port=1234
 prj_name="test_run_x128_prompt_tuning"
 task_data_config="data_provider/myfyp_single_ucihar.yaml"
-calib_data_path="/home/lps/fyp/UniTS/calib_data/myfyp_single_ucihar_calib_data.npz"
-tflite_path="/home/lps/fyp/UniTS/tflite_models/myfyp_frompretrainedmodel_x128_prompttuning_single_ucihar.tflite"
+calib_data_path="/home/lps/UniTS/calib_data/myfyp_single_ucihar_calib_data_test.npz"
+tflite_path="/home/lps/fyp/UniTS/tflite_models/myfyp_frompretrainedmodel_x128_prompttuning_lora_single_ucihar_fp32.tflite"
 
 # Run the training script
 python run.py \
   --is_training 0 \
   --convert_to_tflite \
+  --convert_to_tflite_dtype fp32 \
   --calib_data_path "$calib_data_path" \
   --tflite_path "$tflite_path" \
   --model_id "$exp_name" \
@@ -39,4 +40,5 @@ python run.py \
   --project_name "$prj_name" \
   --clip_grad 100 \
   --pretrained_weight "$ckpt_path" \
-  --task_data_config_path "$task_data_config"
+  --task_data_config_path "$task_data_config" \
+  --lora
