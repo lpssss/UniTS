@@ -55,12 +55,16 @@ def adjust_learning_rate(optimizer, epoch, base_lr, args):
 
     if epoch in lr_adjust.keys():
         lr = lr_adjust[epoch]
+        # print(f'optimizer param groups: {len(optimizer.param_groups)}')
+        assert len(optimizer.param_groups) ==1, "Only support single param group now."
         for param_group in optimizer.param_groups:
             if "lr_scale" in param_group:
                 param_group["lr"] = lr * param_group["lr_scale"]
             else:
                 param_group["lr"] = lr
         print('Epoch {}: Updating learning rate to {}'.format(epoch+1, lr))
+
+    return lr_adjust
 
 
 class dotdict(dict):

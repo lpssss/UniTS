@@ -215,7 +215,6 @@ class Exp_All_Task(object):
         real_learning_rate = self.args.learning_rate * eff_batch_size / 32
         self.real_learning_rate = real_learning_rate
         print(f'args learning rate: {self.args.learning_rate}')
-        print("base lr: %.2e" % (self.args.learning_rate * 32 / eff_batch_size))
         print("actual lr: %.2e" % real_learning_rate)
 
         print("accumulate grad iterations: %d" % self.args.acc_it)
@@ -532,9 +531,14 @@ class Exp_All_Task(object):
 
         self.start_training = True
 
+        all_learning_rates = []
+
         for epoch in range(self.args.train_epochs+self.args.prompt_tune_epoch):
-            adjust_learning_rate(model_optim, epoch,
+            lr_adjust = adjust_learning_rate(model_optim, epoch,
                                  self.real_learning_rate, self.args)
+
+            all_learning_rates.append(lr_adjust)
+
             # Prompt learning
             if (epoch+1) <= self.args.prompt_tune_epoch:
                 self.choose_training_parts(prompt_tune=True, lora_tune=self.args.lora)
@@ -569,6 +573,11 @@ class Exp_All_Task(object):
             # plot loss curve
             self.plot_loss_curve(train_loss_per_epoch_list, filename="train_loss_curve.png", title="Training Loss Over Epochs")
             self.plot_loss_curve(test_loss_per_epoch_list, filename="test_loss_curve.png", title="Test Loss Over Epochs")
+
+            # dump all learning rates in json file
+            with open(os.path.join(self.path, 'learning_rates.json'), 'w') as f:
+                import json
+                json.dump({'learning_rates': all_learning_rates}, f, indent=4)
 
         return self.model
 
@@ -852,6 +861,7 @@ class Exp_All_Task(object):
             print("Output data types for all outputs:", self.output_dtypes)
 
         total_dict = {}
+        avg_loss = []
         avg_classification_acc = []
         avg_long_term_forecast_mse = []
         avg_long_term_forecast_mae = []
@@ -879,10 +889,12 @@ class Exp_All_Task(object):
                 if tflite_path is not None:
                     acc = self.test_classification_tflite(
                         setting, test_data, test_loader, data_task_name, task_id)
+                    avg_loss.append(0)
                 else:
                     criterion = self._select_criterion([self.task_data_config_list[task_id]])[0]
-                    acc = self.test_classification(
+                    acc, avg_loss_value = self.test_classification(
                         setting, test_data, test_loader, data_task_name, task_id, criterion)
+                    avg_loss.append(avg_loss_value)
                 total_dict[data_task_name] = {'acc': acc}
                 if is_main_process():
                     wandb.log({'eval_CLS-acc_'+data_task_name: acc})
@@ -914,6 +926,7 @@ class Exp_All_Task(object):
         avg_imputation_mae = np.average(avg_imputation_mae)
 
         avg_anomaly_f_score = np.average(avg_anomaly_f_score)
+        avg_loss = np.average(avg_loss)
 
         if is_main_process():
             wandb.log({'avg_eval_LF-mse': avg_long_term_forecast_mse, 'avg_eval_LF-mae': avg_long_term_forecast_mae,
@@ -923,7 +936,7 @@ class Exp_All_Task(object):
             print("Avg score: LF-mse: {}, LF-mae: {}, CLS-acc {}, IMP-mse: {}, IMP-mae: {}, Ano-F: {}".format(avg_long_term_forecast_mse,
                                                                                                               avg_long_term_forecast_mae, avg_classification_acc, avg_imputation_mse, avg_imputation_mae, avg_anomaly_f_score), folder=self.path)
             print(total_dict, folder=self.path)
-        return avg_classification_acc, avg_long_term_forecast_mse, avg_long_term_forecast_mae
+        return avg_classification_acc, avg_long_term_forecast_mse, avg_long_term_forecast_mae, avg_loss
 
     def test_long_term_forecast(self, setting, test_data, test_loader, data_task_name, task_id):
         config = self.task_data_config_list[task_id][1]
