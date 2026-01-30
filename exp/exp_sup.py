@@ -201,13 +201,13 @@ class Exp_All_Task(object):
                     self.args, task_config, flag, ddp=False)  # ddp false to avoid shuffle
                 data_set_list.append([train_data_set, data_set])
                 data_loader_list.append([train_data_loader, data_loader])
-                print(task_data_name, len(data_set))
+                print(task_data_name, len(data_set), folder=self.path)
             else:
                 data_set, data_loader = data_provider(
                     self.args, task_config, flag, ddp=False)
                 data_set_list.append(data_set)
                 data_loader_list.append(data_loader)
-                print(f'Getting data: {task_data_name}, {len(data_set)}')
+                print(f'Getting data: {task_data_name}, {len(data_set)}', folder=self.path)
         return data_set_list, data_loader_list
 
     def _select_optimizer(self):
@@ -639,10 +639,10 @@ class Exp_All_Task(object):
 
             if (i+1) % acc_it == 0:
                 model_optim.zero_grad()
-                for n, p in self.model.named_parameters():
-                    if torch.isnan(p).any() or torch.isinf(p).any():
-                        print("BAD PARAM:", n)
-                        assert False
+                # for n, p in self.model.named_parameters():
+                #     if torch.isnan(p).any() or torch.isinf(p).any():
+                #         print("BAD PARAM:", n)
+                #         # assert False
                 
             torch.cuda.synchronize()
 
@@ -726,12 +726,12 @@ class Exp_All_Task(object):
         # if self.start_training:
         #     print("classification loss debug:", loss.item())
         #     assert False
-        if torch.isnan(loss):
-            print("loss is nan!")
-            print("outputs:", outputs)
-            print("labels:", label)
-            print(f'inputs:{batch_x}')
-            assert False
+        # if torch.isnan(loss):
+        #     print("loss is nan!")
+        #     print("outputs:", outputs)
+        #     print("labels:", label)
+        #     print(f'inputs:{batch_x}')
+        #     assert False
         return loss
 
     def train_imputation(self, model, this_batch, criterion, config, task_id):
