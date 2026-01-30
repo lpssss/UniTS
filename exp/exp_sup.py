@@ -314,7 +314,7 @@ class Exp_All_Task(object):
 
     
 
-    def plot_loss_curve(self, losses, title="Training Loss Over Time"):
+    def plot_loss_curve(self, losses, filename, title="Training Loss Over Time"):
         """
         Plots the loss curve from a list of loss values.
         """
@@ -331,7 +331,7 @@ class Exp_All_Task(object):
         
         # Save the file before showing it
         # dpi=300 is standard for high-quality reports
-        filepath = os.path.join(self.path, 'loss_curve.png')
+        filepath = os.path.join(self.path, filename)
         plt.savefig(filepath, dpi=300, bbox_inches='tight')
         print(f"Plot saved successfully as {filepath}")
         
@@ -413,6 +413,7 @@ class Exp_All_Task(object):
         self.path = path
 
         train_loss_per_epoch_list = []
+        test_loss_per_epoch_list = []
 
         initial_model_params = self.calculate_all_params()
 
@@ -515,7 +516,7 @@ class Exp_All_Task(object):
         # Optimizer and Criterion
         model_optim = self._select_optimizer()
         criterion_list = self._select_criterion(self.task_data_config_list)
-        scaler = NativeScaler()
+        scaler = NativeScaler(is_enabled=self.args.enable_mixed_precision_training)
 
         # Set up batch size for each task
         if self.args.memory_check:
@@ -546,8 +547,9 @@ class Exp_All_Task(object):
             train_loss_per_epoch_list.append(train_loss)
 
             # we report the results of last epoch and not find the best epoch based on val set, since some datasets do not have val set
-            avg_cls_acc, avg_forecast_mse, avg_forecast_mae = self.test(
+            avg_cls_acc, avg_forecast_mse, avg_forecast_mae, avg_loss = self.test(
                 setting, load_pretrain=False, test_data_list=test_data_list, test_loader_list=test_loader_list)
+            test_loss_per_epoch_list.append(avg_loss)
 
             # save ckpt
             if is_main_process():
@@ -565,7 +567,8 @@ class Exp_All_Task(object):
             print("Final score: LF-mse: {}, LF-mae: {}, CLS-acc {}".format(avg_forecast_mse,
                                                                            avg_forecast_mae, avg_cls_acc), folder=self.path)
             # plot loss curve
-            self.plot_loss_curve(train_loss_per_epoch_list, title="Training Loss Over Epochs")
+            self.plot_loss_curve(train_loss_per_epoch_list, filename="train_loss_curve.png", title="Training Loss Over Epochs")
+            self.plot_loss_curve(test_loss_per_epoch_list, filename="test_loss_curve.png", title="Test Loss Over Epochs")
 
         return self.model
 
@@ -584,6 +587,7 @@ class Exp_All_Task(object):
 
             task_name = self.task_data_config_list[task_id][1]['task_name']
             small_batch_size = self.task_data_config_list[task_id][1]['max_batch']
+            # print(f'small batch size: {small_batch_size} for task {task_name}')
             if small_batch_size != self.args.batch_size:
                 sample_list = self.split_batch(
                     sample_init, small_batch_size, task_name)
@@ -591,6 +595,8 @@ class Exp_All_Task(object):
             else:
                 sample_list = [sample_init]
                 len_sample_list = 1
+
+            # print(f'len of sample list: {len_sample_list} for task {task_name}')
 
             for sample_idx in range(len_sample_list):
                 sample = sample_list[sample_idx]
@@ -874,8 +880,9 @@ class Exp_All_Task(object):
                     acc = self.test_classification_tflite(
                         setting, test_data, test_loader, data_task_name, task_id)
                 else:
+                    criterion = self._select_criterion([self.task_data_config_list[task_id]])[0]
                     acc = self.test_classification(
-                        setting, test_data, test_loader, data_task_name, task_id)
+                        setting, test_data, test_loader, data_task_name, task_id, criterion)
                 total_dict[data_task_name] = {'acc': acc}
                 if is_main_process():
                     wandb.log({'eval_CLS-acc_'+data_task_name: acc})
@@ -973,9 +980,10 @@ class Exp_All_Task(object):
         torch.cuda.empty_cache()
         return mse, mae
 
-    def test_classification(self, setting, test_data, test_loader, data_task_name, task_id):
+    def test_classification(self, setting, test_data, test_loader, data_task_name, task_id, criterion):
         preds = []
         trues = []
+        losses = []
         self.model.eval()
         with torch.no_grad():
             for i, (batch_x, label, padding_mask) in enumerate(test_loader):
@@ -985,6 +993,9 @@ class Exp_All_Task(object):
 
                 outputs = self.model(
                     batch_x, padding_mask, None, None, task_id=task_id, task_name='classification')
+                
+                loss = criterion(outputs, label.long().squeeze(-1))
+                losses.append(loss.item())
                 outputs = torch.nn.functional.softmax(outputs)
 
                 predictions = torch.argmax(outputs, dim=1)
@@ -1001,9 +1012,10 @@ class Exp_All_Task(object):
         predictions = preds.cpu().numpy()
         trues = trues.flatten().cpu().numpy()
         accuracy = cal_accuracy(predictions, trues)
+        avg_loss = sum(losses) / len(losses) if losses else 0
 
-        print('data_task_name: {} accuracy:{}'.format(
-            data_task_name, accuracy), folder=self.path)
+        print('data_task_name: {} accuracy:{}, avg_loss:{}'.format(
+            data_task_name, accuracy, avg_loss), folder=self.path)
         
         print("In-depth classification analysis for task: {}".format(data_task_name), folder=self.path)
         self.in_depth_classification_analysis(trues, predictions)
@@ -1012,7 +1024,7 @@ class Exp_All_Task(object):
         del trues
         torch.cuda.empty_cache()
 
-        return accuracy
+        return accuracy, avg_loss
     
     def in_depth_classification_analysis(self, labels, predictions):
         from sklearn.metrics import (

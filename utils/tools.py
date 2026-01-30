@@ -142,8 +142,8 @@ class NativeScalerWithGradNormCount:
     # https://github.com/facebookresearch/mae/blob/main/util/misc.py
     state_dict_key = "amp_scaler"
 
-    def __init__(self):
-        self._scaler = torch.amp.GradScaler(device='cuda')
+    def __init__(self, is_enabled=False):
+        self._scaler = torch.amp.GradScaler(enabled=is_enabled, device='cuda')
         # self._scaler = torch.cuda.amp.GradScaler()
 
     def __call__(self, loss, optimizer, clip_grad=None, parameters=None, create_graph=False, update_grad=True):
