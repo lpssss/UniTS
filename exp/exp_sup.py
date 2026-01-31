@@ -169,6 +169,7 @@ class Exp_All_Task(object):
         self.model = self._build_model()
         self.start_training = False
         self.is_lora_initiated = False
+        self.pretrained_model_prompt_length = 10
 
     def _build_model(self, ddp=False):
         import importlib
@@ -284,6 +285,11 @@ class Exp_All_Task(object):
                     param.requires_grad = False
             else:
                 param.requires_grad = True
+
+            # check prompt_fc layers
+            if 'prompt_fc' in name and param.shape[0] != self.pretrained_model_prompt_length:
+                param.requires_grad = True
+                print("trainable due to shape mismatch:", name)
 
         if not prompt_tune and not lora_tune:
             print("all trainable.")
@@ -405,6 +411,61 @@ class Exp_All_Task(object):
             parent = getattr(parent, p)
         setattr(parent, name, lora_fc)
 
+    def load_weights(self, is_training=True):
+        if os.path.exists(self.args.pretrained_weight):
+            pretrain_weight_path = self.args.pretrained_weight
+            print('loading pretrained model:',
+                    pretrain_weight_path, folder=self.path)
+            if 'pretrain_checkpoint.pth' in pretrain_weight_path:
+                state_dict = torch.load(
+                    pretrain_weight_path, map_location='cpu', weights_only=False)['student']
+                ckpt = {}
+                for k, v in state_dict.items():
+                    if not ('cls_prompts' in k):
+                        ckpt[k] = v
+            else:
+                ckpt = torch.load(pretrain_weight_path, map_location='cpu', weights_only=False)
+
+            if is_training:
+                # remove module. prefix if present
+                new_ckpt = {}
+                for k, v in ckpt.items():
+                    if k.startswith('module.'):
+                        new_ckpt[k[7:]] = v
+                    else:
+                        new_ckpt[k] = v
+
+                ckpt = new_ckpt
+                
+                # find intersection keys and missing keys
+                intersection_keys = set(ckpt.keys()) & set(self.model.state_dict().keys())
+                missing_keys = set(self.model.state_dict().keys()) - set(ckpt.keys())
+
+                # check if shapes match for prompt_fc, as the size may differ due to different prompt lengths
+                for key in intersection_keys:
+                    if 'prompt_fc' in key:
+                        if ckpt[key].shape != self.model.state_dict()[key].shape:
+                            print(f"Shape mismatch for {key}, removing from ckpt. Ckpt shape: {ckpt[key].shape}, Model shape: {self.model.state_dict()[key].shape}", folder=self.path)
+                            del ckpt[key]
+
+                print("Intersection keys:", intersection_keys, folder=self.path)
+                print("Missing keys:", missing_keys, folder=self.path)
+
+                msg = self.model.load_state_dict(ckpt, strict=False)
+
+            else:
+                msg = self.model.load_state_dict(ckpt, strict=True)
+
+            print(msg, folder=self.path)
+        else:
+            if not is_training:
+                print("no ckpt found!")
+                exit()
+
+            else:
+                print("no ckpt found, but not required, continue to train from scratch...", folder=self.path)
+                return
+
     def train(self, setting):
         path = os.path.join(self.args.checkpoints, setting)
         if not os.path.exists(path) and is_main_process():
@@ -421,50 +482,7 @@ class Exp_All_Task(object):
         final_model_params = self.calculate_all_params()
 
         # Load pretrained weights (Optional)
-        if self.args.pretrained_weight is not None:
-            if self.args.pretrained_weight == 'auto':
-                pretrain_weight_path = os.path.join(
-                    self.path, 'pretrain_checkpoint.pth')
-            else:
-                pretrain_weight_path = self.args.pretrained_weight
-            print('loading pretrained model:',
-                  pretrain_weight_path, folder=self.path)
-            if 'pretrain_checkpoint.pth' in pretrain_weight_path:
-                state_dict = torch.load(
-                    pretrain_weight_path, map_location='cpu', weights_only=False)['student']
-                ckpt = {}
-                for k, v in state_dict.items():
-                    if not ('cls_prompts' in k):
-                        ckpt[k] = v
-            else:
-                ckpt = torch.load(pretrain_weight_path, map_location='cpu', weights_only=False)
-
-            # remove module. prefix if present
-            new_ckpt = {}
-            for k, v in ckpt.items():
-                if k.startswith('module.'):
-                    new_ckpt[k[7:]] = v
-                else:
-                    new_ckpt[k] = v
-
-            ckpt = new_ckpt
-            
-            # find intersection keys and missing keys
-            intersection_keys = set(ckpt.keys()) & set(self.model.state_dict().keys())
-            missing_keys = set(self.model.state_dict().keys()) - set(ckpt.keys())
-            print("Intersection keys:", intersection_keys, folder=self.path)
-            print("Missing keys:", missing_keys, folder=self.path)
-
-            # # dump all model keys and ckpt keys for debugging in a json file
-            # with open('model_keys.json', 'w') as f:
-            #     import json
-            #     model_keys = list(self.model.state_dict().keys())
-            #     ckpt_keys = list(ckpt.keys())
-            #     json.dump({'model_keys': model_keys, 'ckpt_keys': ckpt_keys}, f, indent=4)
-            # assert False
-
-            msg = self.model.load_state_dict(ckpt, strict=False)
-            print(msg, folder=self.path)
+        self.load_weights(is_training=True)
 
         # Data
         _, train_loader_list = self._get_data(flag='train')
@@ -808,24 +826,7 @@ class Exp_All_Task(object):
         self.init_lora()                    
 
         if load_pretrain:
-            if os.path.exists(self.args.pretrained_weight):
-                pretrain_weight_path = self.args.pretrained_weight
-                print('loading pretrained model:',
-                      pretrain_weight_path, folder=self.path)
-                if 'pretrain_checkpoint.pth' in pretrain_weight_path:
-                    state_dict = torch.load(
-                        pretrain_weight_path, map_location='cpu', weights_only=False)['student']
-                    ckpt = {}
-                    for k, v in state_dict.items():
-                        if not ('cls_prompts' in k):
-                            ckpt[k] = v
-                else:
-                    ckpt = torch.load(pretrain_weight_path, map_location='cpu', weights_only=False)
-                msg = self.model.load_state_dict(ckpt, strict=False)
-                print(msg)
-            else:
-                print("no ckpt found!")
-                exit()
+            self.load_weights(is_training=False)
 
         # load tflite model if provided
         if tflite_path is not None:
@@ -1348,24 +1349,7 @@ class Exp_All_Task(object):
         
         # assert False
         if load_pretrain:
-            if os.path.exists(self.args.pretrained_weight):
-                pretrain_weight_path = self.args.pretrained_weight
-                print('loading pretrained model:',
-                      pretrain_weight_path, folder=self.path)
-                if 'pretrain_checkpoint.pth' in pretrain_weight_path:
-                    state_dict = torch.load(
-                        pretrain_weight_path, map_location='cpu', weights_only=False)['student']
-                    ckpt = {}
-                    for k, v in state_dict.items():
-                        if not ('cls_prompts' in k):
-                            ckpt[k] = v
-                else:
-                    ckpt = torch.load(pretrain_weight_path, map_location='cpu', weights_only=False)
-                msg = self.model.load_state_dict(ckpt, strict=False)
-                print(msg)
-            else:
-                print("no ckpt found!")
-                exit()
+            self.load_weights(is_training=False)
 
         total_dict = {}
         avg_classification_acc = []
@@ -1476,24 +1460,7 @@ class Exp_All_Task(object):
         self.init_lora()
 
         if load_pretrain:
-            if os.path.exists(self.args.pretrained_weight):
-                pretrain_weight_path = self.args.pretrained_weight
-                print('loading pretrained model:',
-                      pretrain_weight_path, folder=self.path)
-                if 'pretrain_checkpoint.pth' in pretrain_weight_path:
-                    state_dict = torch.load(
-                        pretrain_weight_path, map_location='cpu', weights_only=False)['student']
-                    ckpt = {}
-                    for k, v in state_dict.items():
-                        if not ('cls_prompts' in k):
-                            ckpt[k] = v
-                else:
-                    ckpt = torch.load(pretrain_weight_path, map_location='cpu', weights_only=False)
-                msg = self.model.load_state_dict(ckpt, strict=False)
-                print(msg)
-            else:
-                print("no ckpt found!")
-                exit()
+            self.load_weights(is_training=False)
 
         total_dict = {}
         avg_classification_acc = []
