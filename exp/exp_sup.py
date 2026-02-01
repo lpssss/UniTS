@@ -869,6 +869,7 @@ class Exp_All_Task(object):
         avg_imputation_mse = []
         avg_imputation_mae = []
         avg_anomaly_f_score = []
+        start_time = time.time()
         for task_id, (test_data, test_loader) in enumerate(zip(test_data_list, test_loader_list)):
             task_name = self.task_data_config_list[task_id][1]['task_name']
             data_task_name = self.task_data_config_list[task_id][0]
@@ -936,6 +937,7 @@ class Exp_All_Task(object):
                        'avg_eval_Anomaly-f_score': avg_anomaly_f_score})
             print("Avg score: LF-mse: {}, LF-mae: {}, CLS-acc {}, IMP-mse: {}, IMP-mae: {}, Ano-F: {}".format(avg_long_term_forecast_mse,
                                                                                                               avg_long_term_forecast_mae, avg_classification_acc, avg_imputation_mse, avg_imputation_mae, avg_anomaly_f_score), folder=self.path)
+            print("Total evaluation time: {} seconds".format(time.time() - start_time), folder=self.path)
             print(total_dict, folder=self.path)
         return avg_classification_acc, avg_long_term_forecast_mse, avg_long_term_forecast_mae, avg_loss
 

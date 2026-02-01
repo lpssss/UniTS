@@ -40,7 +40,10 @@ def data_provider(args, config, flag, ddp=False):  # args,
         if 'anomaly_detection' in config['task_name']:  # working on one gpu
             batch_size = args.batch_size
         else:
-            batch_size = 1  # bsz=1 for evaluation
+            if args.tflite_path is not None:
+                batch_size = 1  # for tflite inference
+            else:
+                batch_size = args.batch_size
         freq = args.freq
     else:
         # shuffle_flag = False
