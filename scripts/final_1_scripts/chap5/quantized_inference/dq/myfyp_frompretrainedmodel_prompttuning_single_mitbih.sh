@@ -3,11 +3,11 @@
 # environment variables
 model_name=UniTS
 d_model=128
-base_name=myfyp_frompretrainedmodel_prompttuning_single_mitbih_lr0.01_token30
+base_name=myfyp_frompretrainedmodel_prompttuning_single_mitbih_lr0.01
 quantization_type=8wdq
 exp_name=inference_tflite_${quantization_type}_${base_name}
 wandb_mode=disabled
-ckpt_path=/home/lps/UniTS/training_checkpoints/ALL_task_myfyp_frompretrainedmodel_prompttuning_single_mitbih_lr0.01_token30_UniTS_All_ftM_dm128_el3_train_0/ptune_checkpoint.pth
+ckpt_path=/home/lps/UniTS/training_checkpoints/ALL_task_myfyp_frompretrainedmodel_prompttuning_single_mitbih_lr0.01_UniTS_All_ftM_dm128_el3_train_0/ptune_checkpoint.pth
 random_port=1234
 prj_name=${exp_name}_prj
 task_data_config=data_provider/myfyp_single_mitbih.yaml
@@ -21,7 +21,7 @@ python run.py \
   --model_id ${exp_name} \
   --model ${model_name} \
   --lradj prompt_tuning \
-  --prompt_num 30 \
+  --prompt_num 10 \
   --patch_len 16 \
   --stride 16 \
   --e_layers 3 \
