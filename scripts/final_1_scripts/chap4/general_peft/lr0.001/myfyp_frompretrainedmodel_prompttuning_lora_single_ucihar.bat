@@ -3,7 +3,7 @@
 REM Set environment variables
 set model_name=UniTS
 set d_model=128
-set exp_name=myfyp_frompretrainedmodel_prompttuning_lora_single_ucihar_lr0.01_rank16
+set exp_name=myfyp_frompretrainedmodel_prompttuning_lora_single_ucihar_lr0.001
 set wandb_mode=disabled
 set ckpt_path=units_x128_pretrain_checkpoint.pth
 set random_port=1234
@@ -23,7 +23,7 @@ python run.py ^
   --d_model %d_model% ^
   --des "train" ^
   --itr 1 ^
-  --learning_rate 0.01 ^
+  --learning_rate 0.001 ^
   --weight_decay 0 ^
   --train_epochs 0 ^
   --prompt_tune_epoch 25 ^
@@ -35,5 +35,5 @@ python run.py ^
   --pretrained_weight %ckpt_path% ^
   --task_data_config_path %task_data_config% ^
   --lora ^
-  --lora_r 16 ^
-  --lora_alpha 32
+  --lora_r 4 ^
+  --lora_alpha 8

@@ -1,0 +1,6 @@
+@REM call C:\Users\pslim\DataDrive\Documents\OneDrive\utm_master\research_methodology\fyp\UniTS\scripts\final_1_scripts\chap4\prompt_token\baselines\token30\myfyp_fromscratch_single_ucihar.bat
+@REM call C:\Users\pslim\DataDrive\Documents\OneDrive\utm_master\research_methodology\fyp\UniTS\scripts\final_1_scripts\chap4\prompt_token\baselines\token30\myfyp_fromscratch_single_wesad.bat
+call C:\Users\pslim\DataDrive\Documents\OneDrive\utm_master\research_methodology\fyp\UniTS\scripts\final_1_scripts\chap4\prompt_token\baselines\token30\myfyp_frompretrainedmodel_single_ucihar.bat
+call C:\Users\pslim\DataDrive\Documents\OneDrive\utm_master\research_methodology\fyp\UniTS\scripts\final_1_scripts\chap4\prompt_token\baselines\token30\myfyp_frompretrainedmodel_single_wesad.bat
+call C:\Users\pslim\DataDrive\Documents\OneDrive\utm_master\research_methodology\fyp\UniTS\scripts\final_1_scripts\chap4\prompt_token\baselines\token30\myfyp_frompretrainedmodel_single_mitbih.bat
+@REM call C:\Users\pslim\DataDrive\Documents\OneDrive\utm_master\research_methodology\fyp\UniTS\scripts\final_1_scripts\chap4\prompt_token\baselines\token30\myfyp_fromscratch_single_mitbih.bat

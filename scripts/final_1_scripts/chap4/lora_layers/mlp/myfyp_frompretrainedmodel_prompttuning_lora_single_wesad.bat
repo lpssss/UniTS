@@ -3,12 +3,12 @@
 REM Set environment variables
 set model_name=UniTS
 set d_model=128
-set exp_name=myfyp_frompretrainedmodel_prompttuning_lora_single_ucihar_lr0.01_rank16
+set exp_name=myfyp_frompretrainedmodel_prompttuning_lora_single_wesad_lr0.01_rank16_mlponly
 set wandb_mode=disabled
 set ckpt_path=units_x128_pretrain_checkpoint.pth
 set random_port=1234
 set prj_name=%exp_name%_prj
-set task_data_config=data_provider/myfyp_single_ucihar.yaml
+set task_data_config=data_provider/myfyp_single_wesad.yaml
 
 REM Run the training script with torchrun
 python run.py ^
@@ -36,4 +36,5 @@ python run.py ^
   --task_data_config_path %task_data_config% ^
   --lora ^
   --lora_r 16 ^
-  --lora_alpha 32
+  --lora_alpha 32 ^
+  --lora_target_modules "mlp"

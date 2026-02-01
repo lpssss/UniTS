@@ -1,0 +1,3 @@
+call C:\Users\pslim\DataDrive\Documents\OneDrive\utm_master\research_methodology\fyp\UniTS\scripts\final_1_scripts\chap4\lora_layers\mlp\myfyp_frompretrainedmodel_prompttuning_lora_single_mitbih.bat
+call C:\Users\pslim\DataDrive\Documents\OneDrive\utm_master\research_methodology\fyp\UniTS\scripts\final_1_scripts\chap4\lora_layers\mlp\myfyp_frompretrainedmodel_prompttuning_lora_single_ucihar.bat
+call C:\Users\pslim\DataDrive\Documents\OneDrive\utm_master\research_methodology\fyp\UniTS\scripts\final_1_scripts\chap4\lora_layers\mlp\myfyp_frompretrainedmodel_prompttuning_lora_single_wesad.bat
