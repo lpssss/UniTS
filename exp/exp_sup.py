@@ -412,7 +412,7 @@ class Exp_All_Task(object):
         setattr(parent, name, lora_fc)
 
     def load_weights(self, is_training=True):
-        if os.path.exists(self.args.pretrained_weight):
+        if self.args.pretrained_weight and os.path.exists(self.args.pretrained_weight):
             pretrain_weight_path = self.args.pretrained_weight
             print('loading pretrained model:',
                     pretrain_weight_path, folder=self.path)
