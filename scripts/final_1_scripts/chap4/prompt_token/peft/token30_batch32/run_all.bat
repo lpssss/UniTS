@@ -1,0 +1,2 @@
+call C:\Users\pslim\DataDrive\Documents\OneDrive\utm_master\research_methodology\fyp\UniTS\scripts\final_1_scripts\chap4\prompt_token\peft\token30_batch32\myfyp_frompretrainedmodel_prompttuning_lora_single_wesad.bat
+call C:\Users\pslim\DataDrive\Documents\OneDrive\utm_master\research_methodology\fyp\UniTS\scripts\final_1_scripts\chap4\prompt_token\peft\token30_batch32\myfyp_frompretrainedmodel_prompttuning_single_wesad.bat
