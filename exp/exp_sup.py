@@ -876,6 +876,12 @@ class Exp_All_Task(object):
             print("Quantization parameters for all outputs:", self.output_quantization_params)
             print("Output data types for all outputs:", self.output_dtypes)
 
+            interpreter = self.tflite_model._interpreter_builder()
+            def return_tflite_interpreter_builder():
+                return interpreter
+
+            self.tflite_model.set_interpreter_builder(return_tflite_interpreter_builder)
+
         total_dict = {}
         avg_loss = []
         avg_classification_acc = []
@@ -1499,20 +1505,22 @@ class Exp_All_Task(object):
         preds = []
         trues = []
         self.model.eval()
-        self.model.to('cpu')
+        # self.model.to('cpu')
         print(f'Check self.model device: {next(self.model.parameters()).device}')
+        # del self.model.blocks
         with torch.no_grad():
-            for i, (batch_x, label, padding_mask) in enumerate(test_loader):
-                batch_x = batch_x.float().to('cpu')
-                padding_mask = padding_mask.float().to('cpu')
+            for idx, (batch_x, label, padding_mask) in enumerate(test_loader):
+                batch_x = batch_x.float().to('cuda:0')
+                padding_mask = padding_mask.float().to('cuda:0')
                 label = label.to('cpu')
 
                 # run preprocess using pytorch model
-                outputs = self.model.preprocess_classification(
-                    batch_x, None,task_id=task_id)
+                preprocess_outputs = self.model.preprocess_classification(
+                    batch_x, None, task_id=task_id)
                 
                 # run inference using tflite model
-                tflite_input = outputs['x'].detach().cpu().numpy()
+                tflite_input = preprocess_outputs['x'].detach().cpu().numpy()
+                del preprocess_outputs
 
                 assert tflite_input.dtype == np.float32, "TFLite model input dtype must be float32"
 
@@ -1530,13 +1538,16 @@ class Exp_All_Task(object):
                         input_tensors[i] = (input_tensors[i] / scale + zero_point).astype(dtype)
 
                 # print(f'TFLite input shape: {tflite_input.shape}')
-                outputs = self.tflite_model(*input_tensors)
-                outputs_tensors = [outputs] if not isinstance(outputs, (list, tuple)) else outputs
+                tflite_outputs = self.tflite_model(*input_tensors)
+                del input_tensors
+                outputs_tensors = [tflite_outputs] if not isinstance(tflite_outputs, (list, tuple)) else tflite_outputs
 
                 assert len(outputs_tensors) == 1, "TFLite model should have only one output for classification task."
                 assert len(self.output_quantization_params) == 1, "Output quantization params should have only one entry for classification task."
                 # dequantize output if needed
                 outputs = outputs_tensors[0]
+                del outputs_tensors
+                
                 for i, (q_param, dtype) in enumerate(zip(self.output_quantization_params, self.output_dtypes)):
                     if dtype == np.float32 or dtype == np.float16:
                         # print("Model output is not quantized.")
@@ -1551,8 +1562,9 @@ class Exp_All_Task(object):
                 outputs = torch.nn.functional.softmax(outputs)
 
                 predictions = torch.argmax(outputs, dim=1)
-                preds.append(predictions.detach())
+                preds.append(predictions.detach().cpu())
                 trues.append(label)
+                del outputs, batch_x, padding_mask, label, predictions, tflite_input, tflite_outputs
 
         # preds = gather_tensors_from_all_gpus(
         #     preds, self.device_id, to_numpy=False)
