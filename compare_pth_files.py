@@ -60,6 +60,8 @@ def compare_all_tensors(path_a, path_b, tolerance=1e-6):
 # compare_all_tensors('model_epoch_1.pth', 'model_epoch_2.pth')
 
 if __name__ == "__main__":
-    path_a = '/home/lps/fyp//UniTS/checkpoints/ALL_task_myfyp_frompretrainedmodel_x128_prompttuning_single_ucihar_UniTS_All_ftM_dm128_el3_Exp_0/ptune_checkpoint.pth'
-    path_b = '/home/lps/fyp//UniTS/checkpoints/ALL_task_myfyp_frompretrainedmodel_x128_prompttuning_single_wesad_UniTS_All_ftM_dm128_el3_Exp_0/ptune_checkpoint.pth'
+    path_a = 'C:\\Users\\pslim\\DataDrive\\Documents\\OneDrive\\utm_master\\research_methodology\\fyp\\UniTS\\checkpoints\\ALL_task_myfyp_frompretrainedmodel_prompttuning_single_wesad_lr0.01_batch32_UniTS_All_ftM_dm128_el3_train_0\\ptune_checkpoint.pth'
+    path_b = 'C:\\Users\\pslim\\DataDrive\\Documents\\OneDrive\\utm_master\\research_methodology\\fyp\\UniTS\\checkpoints\\ALL_task_myfyp_frompretrainedmodel_prompttuning_single_ucihar_lr0.01_UniTS_All_ftM_dm128_el3_train_0\\ptune_checkpoint.pth'
+    # path_a = 'C:\\Users\\pslim\\DataDrive\\Documents\\OneDrive\\utm_master\\research_methodology\\fyp\\UniTS\\checkpoints\\ALL_task_myfyp_frompretrainedmodel_single_mitbih_lr0.1_UniTS_All_ftM_dm128_el3_train_0\\checkpoint.pth'
+    # path_b = 'C:\\Users\\pslim\\DataDrive\\Documents\\OneDrive\\utm_master\\research_methodology\\fyp\\UniTS\\checkpoints\\ALL_task_myfyp_frompretrainedmodel_single_wesad_lr0.001_batch32_UniTS_All_ftM_dm128_el3_train_0\\checkpoint.pth'
     compare_all_tensors(path_a, path_b)
