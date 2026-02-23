@@ -466,6 +466,19 @@ class Exp_All_Task(object):
                 print("no ckpt found, but not required, continue to train from scratch...", folder=self.path)
                 return
 
+    def print_dataset_statistics(self, data_set_list, flag):
+        print(data_set_list)
+        for idx, data_set in enumerate(data_set_list):
+            task_name = self.task_data_config_list[idx][1]['task_name']
+            if task_name == 'classification':
+                labels = data_set.labels_df
+                class_counts = labels.value_counts().sort_index()
+                print(f"Dataset statistics for task {self.task_data_config_list[idx][0]} ({flag} set):", folder=self.path)
+                for class_label, count in class_counts.items():
+                    print(f"  Class {class_label}: {count} samples", folder=self.path)
+            else:
+                print(f"Dataset statistics for task {self.task_data_config_list[idx][0]} ({flag} set): Total samples = {len(data_set)}", folder=self.path)
+
     def train(self, setting):
         path = os.path.join(self.args.checkpoints, setting)
         if not os.path.exists(path) and is_main_process():
@@ -485,12 +498,14 @@ class Exp_All_Task(object):
         self.load_weights(is_training=True)
 
         # Data
-        _, train_loader_list = self._get_data(flag='train')
+        train_data_list, train_loader_list = self._get_data(flag='train')
+        self.print_dataset_statistics(train_data_list, flag='train')
         # Since some datasets do not have val set, we use test set and report the performance of last epoch instead of the best epoch.
         test_data_list, test_loader_list = self._get_data(
             flag='test', test_anomaly_detection=True)
         data_loader_cycle, train_steps = init_and_merge_datasets(
             train_loader_list)
+        self.print_dataset_statistics(test_data_list, flag='test')
 
         # Model param check
         pytorch_total_params = sum(p.numel() for p in self.model.parameters())
