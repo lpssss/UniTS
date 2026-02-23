@@ -1,0 +1,3 @@
+call C:\Users\pslim\DataDrive\Documents\OneDrive\utm_master\research_methodology\fyp\UniTS\scripts\final_1_scripts\chap4\training_perf\mitbih\run_mitbih_profile.bat
+call C:\Users\pslim\DataDrive\Documents\OneDrive\utm_master\research_methodology\fyp\UniTS\scripts\final_1_scripts\chap4\training_perf\ucihar\run_ucihar_profile.bat
+call C:\Users\pslim\DataDrive\Documents\OneDrive\utm_master\research_methodology\fyp\UniTS\scripts\final_1_scripts\chap4\training_perf\wesad\run_wesad_profile.bat
