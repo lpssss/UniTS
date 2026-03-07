@@ -16,4 +16,4 @@ output_folder=final_tflite_models/measure_perf_pi_results
 mkdir -p ${output_folder}
 
 python tflite_code/measure_latency_pi.py \
-  --tflite_model_path "$tflite_path"  | tee -a ${output_folder}/${exp_name}_inference_latency_log.txt
+  --tflite_path "$tflite_path"  | tee -a ${output_folder}/${exp_name}_inference_latency_log.txt
