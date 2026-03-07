@@ -1,0 +1,14 @@
+#!/bin/bash
+sleep 10
+bash scripts/final_1_scripts/chap5/measure_mem_disk_pi/8w8a/myfyp_frompretrainedmodel_prompttuning_lora_single_mitbih.sh
+sleep 10
+bash scripts/final_1_scripts/chap5/measure_mem_disk_pi/8w8a/myfyp_frompretrainedmodel_prompttuning_single_mitbih.sh
+sleep 10
+bash scripts/final_1_scripts/chap5/measure_mem_disk_pi/8w8a/myfyp_frompretrainedmodel_prompttuning_lora_single_ucihar.sh
+sleep 10
+bash scripts/final_1_scripts/chap5/measure_mem_disk_pi/8w8a/myfyp_frompretrainedmodel_prompttuning_single_ucihar.sh
+sleep 10
+bash scripts/final_1_scripts/chap5/measure_mem_disk_pi/8w8a/myfyp_frompretrainedmodel_prompttuning_lora_single_wesad.sh
+sleep 10
+bash scripts/final_1_scripts/chap5/measure_mem_disk_pi/8w8a/myfyp_frompretrainedmodel_prompttuning_single_wesad.sh
+sleep 10
