@@ -4,7 +4,7 @@ task_dataset:
     dataset: MITBIH
     data: UEA
     embed: timeF
-    root_path: myfypdataset/mitbih
+    root_path: myfypdataset/MITBIH
     seq_len: 360
     label_len: 0
     pred_len: 0
