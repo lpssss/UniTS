@@ -7,11 +7,11 @@ base_name=myfyp_frompretrainedmodel_prompttuning_lora_single_ucihar_lr0.01_rank1
 quantization_type=fp
 exp_name=inference_tflite_pi_${quantization_type}_${base_name}
 wandb_mode=disabled
-ckpt_path=training_checkpoints/ALL_task_myfyp_frompretrainedmodel_prompttuning_lora_single_ucihar_lr0.01_rank16_UniTS_All_ftM_dm128_el3_train_0/ptune_checkpoint.pth
+ckpt_path=""
 random_port=1234
 prj_name=${exp_name}_prj
 task_data_config=data_provider/myfyp_single_ucihar.yaml
-calib_data_path=calib_data/save_calib_${base_name}_calib_data.npz
+calib_data_path=""
 tflite_path=final_tflite_models/conversion_${base_name}.tflite
 
 # Run the training script with torchrun
