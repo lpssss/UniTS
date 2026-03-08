@@ -846,41 +846,86 @@ class Exp_All_Task(object):
         # load tflite model if provided
         if tflite_path is not None:
             print(f'Detected tflite model path: {tflite_path}, loading tflite model for classification task evaluation.')
-            import ai_edge_torch
-            self.tflite_model = ai_edge_torch.load(tflite_path)
+            try:
+                import ai_edge_torch
+                self.tflite_model = ai_edge_torch.load(tflite_path)
 
-            # get quantization details
-            input_details = self.tflite_model._interpreter_builder().get_input_details()
-            print("Input details:", input_details)
+                # get quantization details
+                input_details = self.tflite_model._interpreter_builder().get_input_details()
+                print("Input details:", input_details)
 
-            # loop through input details to find quantization parameters
-            self.quantization_params = []
-            self.input_dtypes = []
-            for detail in input_details:
-                print(f"Input tensor '{detail['name']}' quantization parameters: {detail['quantization']}")
-                self.quantization_params.append(detail['quantization'])
-                self.input_dtypes.append(detail['dtype'])
-            print("Quantization parameters for all inputs:", self.quantization_params)
-            print("Input data types for all inputs:", self.input_dtypes)
+                # loop through input details to find quantization parameters
+                self.quantization_params = []
+                self.input_dtypes = []
+                for detail in input_details:
+                    print(f"Input tensor '{detail['name']}' quantization parameters: {detail['quantization']}")
+                    self.quantization_params.append(detail['quantization'])
+                    self.input_dtypes.append(detail['dtype'])
+                print("Quantization parameters for all inputs:", self.quantization_params)
+                print("Input data types for all inputs:", self.input_dtypes)
 
-            # get output details
-            output_details = self.tflite_model._interpreter_builder().get_output_details()
-            print("Output details:", output_details)
+                # get output details
+                output_details = self.tflite_model._interpreter_builder().get_output_details()
+                print("Output details:", output_details)
 
-            self.output_quantization_params = []
-            self.output_dtypes = []
-            for detail in output_details:
-                print(f"Output tensor '{detail['name']}' quantization parameters: {detail['quantization']}")
-                self.output_quantization_params.append(detail['quantization'])
-                self.output_dtypes.append(detail['dtype'])
-            print("Quantization parameters for all outputs:", self.output_quantization_params)
-            print("Output data types for all outputs:", self.output_dtypes)
+                self.output_quantization_params = []
+                self.output_dtypes = []
+                for detail in output_details:
+                    print(f"Output tensor '{detail['name']}' quantization parameters: {detail['quantization']}")
+                    self.output_quantization_params.append(detail['quantization'])
+                    self.output_dtypes.append(detail['dtype'])
+                print("Quantization parameters for all outputs:", self.output_quantization_params)
+                print("Output data types for all outputs:", self.output_dtypes)
 
-            interpreter = self.tflite_model._interpreter_builder()
-            def return_tflite_interpreter_builder():
-                return interpreter
+                interpreter = self.tflite_model._interpreter_builder()
+                def return_tflite_interpreter_builder():
+                    return interpreter
 
-            self.tflite_model.set_interpreter_builder(return_tflite_interpreter_builder)
+                self.tflite_model.set_interpreter_builder(return_tflite_interpreter_builder)
+
+            except ImportError:
+                from ai_edge_litert import interpreter as tfl_interpreter
+                interpreter = tfl_interpreter.Interpreter(tflite_path, experimental_default_delegate_latest_features=True,)
+
+                # get quantization details
+                input_details = interpreter.get_input_details()
+                print("Input details:", input_details)
+                self.quantization_params = []
+                self.input_dtypes = []
+                for detail in input_details:
+                    print(f"Input tensor '{detail['name']}' quantization parameters: {detail['quantization']}")
+                    self.quantization_params.append(detail['quantization'])
+                    self.input_dtypes.append(detail['dtype'])
+                print("Quantization parameters for all inputs:", self.quantization_params)
+                print("Input data types for all inputs:", self.input_dtypes)
+
+                output_details = interpreter.get_output_details()
+                print("Output details:", output_details)
+                self.output_quantization_params = []
+                self.output_dtypes = []
+                for detail in output_details:
+                    print(f"Output tensor '{detail['name']}' quantization parameters: {detail['quantization']}")
+                    self.output_quantization_params.append(detail['quantization'])
+                    self.output_dtypes.append(detail['dtype'])
+                print("Quantization parameters for all outputs:", self.output_quantization_params)
+                print("Output data types for all outputs:", self.output_dtypes)
+
+                # define __call__ method for tflite_model to mimic ai_edge_torch behavior
+                def tflite_model_call(input_data_list):
+                    # allocate tensors and set tensors
+                    # no need to quantize input data here as we will do it in the test_classification_tflite function based on the quantization parameters obtained from the model
+                    interpreter.allocate_tensors()
+                    input_details = interpreter.get_input_details()
+                    for i, input_data in enumerate(input_data_list):
+                        interpreter.set_tensor(input_details[i]['index'], input_data)
+                    interpreter.invoke()
+                    output_details = interpreter.get_output_details()
+                    outputs = []
+                    for detail in output_details:
+                        output_data = interpreter.get_tensor(detail['index'])
+                        outputs.append(output_data)
+                    return outputs
+                self.tflite_model.__call__ = tflite_model_call
 
         total_dict = {}
         avg_loss = []
